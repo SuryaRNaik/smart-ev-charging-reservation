@@ -93,8 +93,8 @@ Project test cases and results will be added during development.
 
 ## Team
 
-- Sriniket
-- Surya
+- Sriniket Deeduvanu - PES2UG24CS521
+- Surya R Naik - PES2UG24CS540
 
 ## Academic Context
 
