@@ -1,6 +1,6 @@
 # Smart EV Charging Station Reservation System
 
-A DBMS Level 3 mini project developed by Sriniket and Surya.
+A DBMS Level 3 mini project developed by Sriniket Deeduvanu and Surya R Naik.
 
 ## Overview
 
