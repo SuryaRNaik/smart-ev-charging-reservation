@@ -50,8 +50,14 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    const { user_id, ev_id, point_id, tariff_id, start_time, end_time } =
-      body;
+    const {
+      user_id,
+      ev_id,
+      point_id,
+      tariff_id,
+      start_time,
+      end_time,
+    } = body;
 
     if (
       !Number.isInteger(user_id) ||
@@ -62,7 +68,10 @@ export async function POST(request: NextRequest) {
       typeof end_time !== "string"
     ) {
       return NextResponse.json(
-        { success: false, message: "Invalid or missing reservation fields" },
+        {
+          success: false,
+          message: "Invalid or missing reservation fields",
+        },
         { status: 400 }
       );
     }
@@ -76,14 +85,20 @@ export async function POST(request: NextRequest) {
       end <= start
     ) {
       return NextResponse.json(
-        { success: false, message: "End time must be after start time" },
+        {
+          success: false,
+          message: "End time must be after start time",
+        },
         { status: 400 }
       );
     }
 
     if (start <= new Date()) {
       return NextResponse.json(
-        { success: false, message: "Reservation must be in the future" },
+        {
+          success: false,
+          message: "Reservation must be in the future",
+        },
         { status: 400 }
       );
     }
@@ -106,16 +121,24 @@ export async function POST(request: NextRequest) {
 
     if (pointRows.length === 0) {
       await connection.rollback();
+
       return NextResponse.json(
-        { success: false, message: "Charging point not found" },
+        {
+          success: false,
+          message: "Charging point not found",
+        },
         { status: 404 }
       );
     }
 
     if (pointRows[0].status !== "Available") {
       await connection.rollback();
+
       return NextResponse.json(
-        { success: false, message: "Charging point is not available" },
+        {
+          success: false,
+          message: "Charging point is not available",
+        },
         { status: 409 }
       );
     }
@@ -129,6 +152,7 @@ export async function POST(request: NextRequest) {
 
     if ((tariffs as unknown[]).length === 0) {
       await connection.rollback();
+
       return NextResponse.json(
         {
           success: false,
@@ -145,8 +169,12 @@ export async function POST(request: NextRequest) {
 
     if ((users as unknown[]).length === 0) {
       await connection.rollback();
+
       return NextResponse.json(
-        { success: false, message: "User not found" },
+        {
+          success: false,
+          message: "User not found",
+        },
         { status: 404 }
       );
     }
@@ -158,6 +186,7 @@ export async function POST(request: NextRequest) {
 
     if ((vehicles as unknown[]).length === 0) {
       await connection.rollback();
+
       return NextResponse.json(
         {
           success: false,
@@ -181,10 +210,12 @@ export async function POST(request: NextRequest) {
 
     if ((conflicts as unknown[]).length > 0) {
       await connection.rollback();
+
       return NextResponse.json(
         {
           success: false,
-          message: "Charging point is already reserved for that time slot",
+          message:
+            "Charging point is already reserved for that time slot",
         },
         { status: 409 }
       );
@@ -217,7 +248,102 @@ export async function POST(request: NextRequest) {
     console.error("Create reservation API error:", error);
 
     return NextResponse.json(
-      { success: false, message: "Failed to create reservation" },
+      {
+        success: false,
+        message: "Failed to create reservation",
+      },
+      { status: 500 }
+    );
+  } finally {
+    connection?.release();
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  let connection;
+
+  try {
+    const body = await request.json();
+    const { reservation_id, user_id } = body;
+
+    if (
+      !Number.isInteger(reservation_id) ||
+      !Number.isInteger(user_id)
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Valid reservation_id and user_id are required",
+        },
+        { status: 400 }
+      );
+    }
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    const [rows] = await connection.query(
+      `SELECT reservation_id, status
+       FROM reservations
+       WHERE reservation_id = ? AND user_id = ?
+       FOR UPDATE`,
+      [reservation_id, user_id]
+    );
+
+    const reservations = rows as {
+      reservation_id: number;
+      status: string;
+    }[];
+
+    if (reservations.length === 0) {
+      await connection.rollback();
+
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Reservation not found for this user",
+        },
+        { status: 404 }
+      );
+    }
+
+    if (!["Booked", "Confirmed"].includes(reservations[0].status)) {
+      await connection.rollback();
+
+      return NextResponse.json(
+        {
+          success: false,
+          message: "This reservation cannot be cancelled",
+        },
+        { status: 409 }
+      );
+    }
+
+    await connection.query(
+      `UPDATE reservations
+       SET status = 'Cancelled'
+       WHERE reservation_id = ? AND user_id = ?`,
+      [reservation_id, user_id]
+    );
+
+    await connection.commit();
+
+    return NextResponse.json({
+      success: true,
+      message: "Reservation cancelled successfully",
+    });
+  } catch (error) {
+    if (connection) {
+      await connection.rollback();
+    }
+
+    console.error("Cancel reservation API error:", error);
+
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Failed to cancel reservation",
+      },
       { status: 500 }
     );
   } finally {

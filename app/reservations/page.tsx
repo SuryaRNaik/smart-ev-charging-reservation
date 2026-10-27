@@ -3,65 +3,52 @@
 
 import { useEffect, useState } from "react";
 
+type Vehicle = {
+  ev_id: number;
+  registration_number: string;
+  make?: string;
+  model?: string;
+};
+
+type ChargingPoint = {
+  point_id: number;
+  station_name: string;
+  connector_type?: string;
+  power_kw?: number;
+};
+
 type Reservation = {
   reservation_id: number;
   start_time: string;
   end_time: string;
   status: string;
-  user_name: string;
-  ev_model: string;
-  vehicle_number: string;
-  point_id: number;
-  connector_type: string;
-  power_kw: number;
-  station_name: string;
-  location: string;
-  city: string;
-};
-
-type Vehicle = {
-  ev_id: number;
-  user_id: number;
-  vehicle_number: string;
-  model: string;
-  connector_type: string;
-};
-
-type ChargingPoint = {
-  point_id: number;
-  station_id: number;
-  connector_type: string;
-  power_kw: number;
-  status: string;
-  station_name: string;
-  location: string;
-  city: string;
-  tariff_id: number;
-  rate_per_kwh: number;
+  station_name?: string;
+  point_id?: number;
+  registration_number?: string;
 };
 
 export default function ReservationsPage() {
-  const [reservations, setReservations] = useState<Reservation[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [points, setPoints] = useState<ChargingPoint[]>([]);
+  const [reservations, setReservations] = useState<Reservation[]>([]);
 
   const [evId, setEvId] = useState("");
   const [pointId, setPointId] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
+  const [minDateTime, setMinDateTime] = useState("");
 
   const [loading, setLoading] = useState(true);
-  const [booking, setBooking] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [minDateTime, setMinDateTime] = useState("");
 
   async function loadReservations() {
     const response = await fetch("/api/reservations");
     const result = await response.json();
 
     if (!response.ok || !result.success) {
-      throw new Error("Could not load reservations.");
+      throw new Error(result.message || "Could not load reservations.");
     }
 
     setReservations(result.data);
@@ -74,6 +61,12 @@ export default function ReservationsPage() {
           fetch("/api/booking-options"),
           loadReservations(),
         ]);
+
+        setMinDateTime(
+          new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+            .toISOString()
+            .slice(0, 16)
+        );
 
         const options = await optionsResponse.json();
 
@@ -101,12 +94,7 @@ export default function ReservationsPage() {
         setLoading(false);
       }
     }
-    
-setMinDateTime(
-  new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 16)
-);
+
     loadData();
   }, []);
 
@@ -117,36 +105,27 @@ setMinDateTime(
     });
   }
 
-  const selectedPoint = points.find(
-    (point) => String(point.point_id) === pointId
-  );
-
   async function handleBooking(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setMessage("");
 
     if (!evId || !pointId || !startTime || !endTime) {
-      setError("Please complete all booking fields.");
-      return;
-    }
-
-    if (new Date(endTime) <= new Date(startTime)) {
-      setError("End time must be after start time.");
+      setError("Please fill in all booking fields.");
       return;
     }
 
     if (new Date(startTime) <= new Date()) {
-      setError("Please choose a future start time.");
+      setError("The reservation start time must be in the future.");
       return;
     }
 
-    if (!selectedPoint) {
-      setError("Please select an available charging point.");
+    if (new Date(endTime) <= new Date(startTime)) {
+      setError("The end time must be after the start time.");
       return;
     }
 
-    setBooking(true);
+    setSubmitting(true);
 
     try {
       const response = await fetch("/api/reservations", {
@@ -155,12 +134,10 @@ setMinDateTime(
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          user_id: 1,
           ev_id: Number(evId),
-          point_id: selectedPoint.point_id,
-          tariff_id: selectedPoint.tariff_id,
-          start_time: new Date(startTime).toISOString(),
-          end_time: new Date(endTime).toISOString(),
+          point_id: Number(pointId),
+          start_time: startTime,
+          end_time: endTime,
         }),
       });
 
@@ -170,223 +147,241 @@ setMinDateTime(
         throw new Error(result.message || "Booking failed.");
       }
 
-      setMessage(
-        `Reservation #${result.reservation_id} created successfully!`
-      );
+      setMessage(result.message || "Reservation created successfully.");
       setStartTime("");
       setEndTime("");
 
       await loadReservations();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Could not create reservation."
-      );
+      setError(err instanceof Error ? err.message : "Booking failed.");
     } finally {
-      setBooking(false);
+      setSubmitting(false);
     }
   }
 
+  async function handleCancellation(reservationId: number) {
+    const confirmed = window.confirm(
+      `Cancel reservation #${reservationId}?`
+    );
+
+    if (!confirmed) return;
+
+    setError("");
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/reservations", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          reservation_id: reservationId,
+          user_id: 1,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Cancellation failed.");
+      }
+
+      setMessage(result.message || "Reservation cancelled successfully.");
+      await loadReservations();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Cancellation failed."
+      );
+    }
+  }
+
+  if (loading) {
+    return <main className="p-8">Loading reservations...</main>;
+  }
+
   return (
-    <main className="min-h-screen bg-gray-100 p-6 text-gray-900 sm:p-10">
-      <div className="mx-auto max-w-6xl">
-        <h1 className="mb-2 text-3xl font-bold">
-          EV Charging Reservations
-        </h1>
-
-        <p className="mb-8 text-gray-600">
-          Book a charging slot and view scheduled reservations.
+    <main className="mx-auto max-w-5xl space-y-8 p-6">
+      <section>
+        <h1 className="text-3xl font-bold">EV Charging Reservations</h1>
+        <p className="mt-2 text-gray-600">
+          Book a charging point and manage your reservations.
         </p>
+      </section>
 
-        <section className="mb-10 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-5 text-xl font-bold">
-            Book a Charging Slot
-          </h2>
+      {error && (
+        <div
+          role="alert"
+          className="rounded border border-red-300 bg-red-50 p-3 text-red-700"
+        >
+          {error}
+        </div>
+      )}
 
-          <form onSubmit={handleBooking} className="space-y-5">
-            <div>
-              <label
-                htmlFor="vehicle"
-                className="mb-1 block text-sm font-medium"
-              >
-                Select Vehicle
-              </label>
-              <select
-                id="vehicle"
-                value={evId}
-                onChange={(event) => setEvId(event.target.value)}
-                required
-                className="w-full rounded-lg border border-gray-300 bg-white p-3"
-              >
-                <option value="">Choose your vehicle</option>
-                {vehicles.map((vehicle) => (
-                  <option key={vehicle.ev_id} value={vehicle.ev_id}>
-                    {vehicle.model} — {vehicle.vehicle_number}
-                  </option>
-                ))}
-              </select>
-            </div>
+      {message && (
+        <div
+          role="status"
+          className="rounded border border-green-300 bg-green-50 p-3 text-green-700"
+        >
+          {message}
+        </div>
+      )}
 
-            <div>
-              <label
-                htmlFor="point"
-                className="mb-1 block text-sm font-medium"
-              >
-                Select Charging Point
-              </label>
-              <select
-                id="point"
-                value={pointId}
-                onChange={(event) => setPointId(event.target.value)}
-                required
-                className="w-full rounded-lg border border-gray-300 bg-white p-3"
-              >
-                <option value="">Choose a charging point</option>
-                {points.map((point) => (
-                  <option key={point.point_id} value={point.point_id}>
-                    Point {point.point_id} — {point.station_name} (
-                    {point.connector_type}, {point.power_kw} kW)
-                  </option>
-                ))}
-              </select>
+      <section className="rounded-lg border p-6">
+        <h2 className="mb-4 text-xl font-semibold">Book a charging point</h2>
 
-              {selectedPoint && (
-                <p className="mt-2 text-sm text-gray-600">
-                  {selectedPoint.location}, {selectedPoint.city} · ₹
-                  {Number(selectedPoint.rate_per_kwh).toFixed(2)}/kWh
-                </p>
-              )}
-            </div>
-
-            <div className="grid gap-5 sm:grid-cols-2">
-              <div>
-                <label
-                  htmlFor="start"
-                  className="mb-1 block text-sm font-medium"
-                >
-                  Start Date & Time
-                </label>
-                <input
-                  id="start"
-                  type="datetime-local"
-                  value={startTime}
-                  min={minDateTime}
-                  onChange={(event) => setStartTime(event.target.value)}
-                  required
-                  className="w-full rounded-lg border border-gray-300 p-3"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="end"
-                  className="mb-1 block text-sm font-medium"
-                >
-                  End Date & Time
-                </label>
-                <input
-                  id="end"
-                  type="datetime-local"
-                  value={endTime}
-                  min={startTime || minDateTime}
-                  onChange={(event) => setEndTime(event.target.value)}
-                  required
-                  className="w-full rounded-lg border border-gray-300 p-3"
-                />
-              </div>
-            </div>
-
-            {error && (
-              <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-700">
-                {error}
-              </p>
-            )}
-
-            {message && (
-              <p
-                role="status"
-                className="rounded-lg bg-green-50 p-3 text-green-700"
-              >
-                {message}
-              </p>
-            )}
-
-            <button
-              type="submit"
-              disabled={booking || loading || points.length === 0 || vehicles.length === 0}
-              className="rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+        <form onSubmit={handleBooking} className="space-y-4">
+          <div>
+            <label htmlFor="evId" className="mb-1 block font-medium">
+              Electric vehicle
+            </label>
+            <select
+              id="evId"
+              value={evId}
+              onChange={(event) => setEvId(event.target.value)}
+              required
+              className="w-full rounded border p-2"
             >
-              {booking ? "Booking..." : "Book Charging Slot"}
-            </button>
-          </form>
-        </section>
+              <option value="">Select your vehicle</option>
+              {vehicles.map((vehicle) => (
+                <option key={vehicle.ev_id} value={vehicle.ev_id}>
+                  {vehicle.registration_number}
+                  {vehicle.make || vehicle.model
+                    ? ` — ${[vehicle.make, vehicle.model].filter(Boolean).join(" ")}`
+                    : ""}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <h2 className="mb-5 text-2xl font-bold">
-          Scheduled Reservations
-        </h2>
+          <div>
+            <label htmlFor="pointId" className="mb-1 block font-medium">
+              Charging point
+            </label>
+            <select
+              id="pointId"
+              value={pointId}
+              onChange={(event) => setPointId(event.target.value)}
+              required
+              className="w-full rounded border p-2"
+            >
+              <option value="">Select a charging point</option>
+              {points.map((point) => (
+                <option key={point.point_id} value={point.point_id}>
+                  {point.station_name} — Point {point.point_id}
+                  {point.connector_type ? ` — ${point.connector_type}` : ""}
+                  {point.power_kw ? ` — ${point.power_kw} kW` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        {loading && <p>Loading reservations...</p>}
+          <div>
+            <label htmlFor="startTime" className="mb-1 block font-medium">
+              Start time
+            </label>
+            <input
+              id="startTime"
+              type="datetime-local"
+              min={minDateTime}
+              value={startTime}
+              onChange={(event) => setStartTime(event.target.value)}
+              required
+              className="w-full rounded border p-2"
+            />
+          </div>
 
-        {error && loading && <p className="text-red-600">{error}</p>}
+          <div>
+            <label htmlFor="endTime" className="mb-1 block font-medium">
+              End time
+            </label>
+            <input
+              id="endTime"
+              type="datetime-local"
+              min={startTime || minDateTime}
+              value={endTime}
+              onChange={(event) => setEndTime(event.target.value)}
+              required
+              className="w-full rounded border p-2"
+            />
+          </div>
 
-        {!loading && reservations.length === 0 && (
-          <p>No reservations found.</p>
+          <button
+            type="submit"
+            disabled={submitting || vehicles.length === 0 || points.length === 0}
+            className="rounded bg-blue-600 px-5 py-2 font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {submitting ? "Booking..." : "Book reservation"}
+          </button>
+        </form>
+
+        {vehicles.length === 0 && (
+          <p className="mt-3 text-sm text-amber-700">
+            No vehicles are available for booking.
+          </p>
         )}
 
-        {!loading && reservations.length > 0 && (
-          <div className="grid gap-5 md:grid-cols-2">
+        {points.length === 0 && (
+          <p className="mt-3 text-sm text-amber-700">
+            No charging points are available.
+          </p>
+        )}
+      </section>
+
+      <section className="rounded-lg border p-6">
+        <h2 className="mb-4 text-xl font-semibold">All reservations</h2>
+
+        {reservations.length === 0 ? (
+          <p className="text-gray-600">No reservations found.</p>
+        ) : (
+          <div className="space-y-4">
             {reservations.map((reservation) => (
               <article
                 key={reservation.reservation_id}
-                className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm"
+                className="flex flex-col justify-between gap-4 rounded border p-4 sm:flex-row sm:items-center"
               >
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <h3 className="text-lg font-semibold">
+                <div>
+                  <h3 className="font-semibold">
                     Reservation #{reservation.reservation_id}
                   </h3>
-
-                  <span className="rounded-full bg-blue-100 px-3 py-1 text-sm font-medium text-blue-800">
-                    {reservation.status}
-                  </span>
-                </div>
-
-                <div className="space-y-2 text-sm">
-                  <p>
-                    <strong>Customer:</strong> {reservation.user_name}
+                  <p className="text-sm text-gray-600">
+                    {reservation.station_name || "Charging station"}
+                    {reservation.point_id
+                      ? ` — Point ${reservation.point_id}`
+                      : ""}
                   </p>
-                  <p>
-                    <strong>Vehicle:</strong> {reservation.ev_model} (
-                    {reservation.vehicle_number})
+                  {reservation.registration_number && (
+                    <p className="text-sm text-gray-600">
+                      Vehicle: {reservation.registration_number}
+                    </p>
+                  )}
+                  <p className="mt-1 text-sm">
+                    Start: {formatDate(reservation.start_time)}
                   </p>
-                  <p>
-                    <strong>Station:</strong> {reservation.station_name}
+                  <p className="text-sm">
+                    End: {formatDate(reservation.end_time)}
                   </p>
-                  <p>
-                    <strong>Location:</strong> {reservation.location},{" "}
-                    {reservation.city}
-                  </p>
-                  <p>
-                    <strong>Charging point:</strong> {reservation.point_id}
-                  </p>
-                  <p>
-                    <strong>Connector:</strong> {reservation.connector_type}
-                  </p>
-                  <p>
-                    <strong>Power:</strong> {reservation.power_kw} kW
-                  </p>
-                  <p>
-                    <strong>Start:</strong>{" "}
-                    {formatDate(reservation.start_time)}
-                  </p>
-                  <p>
-                    <strong>End:</strong>{" "}
-                    {formatDate(reservation.end_time)}
+                  <p className="mt-1 text-sm">
+                    Status: <span className="font-medium">{reservation.status}</span>
                   </p>
                 </div>
+
+                {["Booked", "Confirmed"].includes(reservation.status) && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleCancellation(reservation.reservation_id)
+                    }
+                    className="rounded border border-red-500 px-4 py-2 text-red-600 hover:bg-red-50"
+                  >
+                    Cancel reservation
+                  </button>
+                )}
               </article>
             ))}
           </div>
         )}
-      </div>
+      </section>
     </main>
   );
 }
