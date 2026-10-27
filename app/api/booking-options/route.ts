@@ -1,0 +1,51 @@
+
+import { NextResponse } from "next/server";
+import pool from "@/lib/db";
+
+export async function GET() {
+  try {
+    const [vehicles] = await pool.query(
+      `SELECT ev_id, user_id, vehicle_number, model, connector_type
+       FROM evs
+       WHERE user_id = ?`,
+      [1]
+    );
+
+    const [chargingPoints] = await pool.query(`
+      SELECT
+        cp.point_id,
+        cp.station_id,
+        cp.connector_type,
+        cp.power_kw,
+        cp.status,
+        cs.station_name,
+        cs.location,
+        cs.city,
+        tp.tariff_id,
+        tp.rate_per_kwh
+      FROM charging_points cp
+      JOIN charging_stations cs
+        ON cp.station_id = cs.station_id
+      JOIN tariff_plans tp
+        ON cp.station_id = tp.station_id
+      WHERE cp.status = 'Available'
+      ORDER BY cp.point_id
+    `);
+
+    return NextResponse.json({
+      success: true,
+      vehicles,
+      chargingPoints,
+    });
+  } catch (error) {
+    console.error("Booking options API error:", error);
+
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Failed to load booking options",
+      },
+      { status: 500 }
+    );
+  }
+}

@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 
 export default function Home() {
   return (
@@ -37,6 +38,12 @@ export default function Home() {
             </a>{" "}
             center.
           </p>
+          <Link
+          href="/reservations"
+          className="flex h-12 items-center justify-center rounded-full bg-blue-600 px-6 font-medium text-white transition-colors hover:bg-blue-700"
+        >
+          View Reservations
+        </Link>
         </div>
         <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
           <a
