@@ -1,14 +1,36 @@
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { verifySession } from "@/lib/auth";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // Read the session outside try/catch.
+  // This allows Next.js to handle dynamic rendering correctly.
+  const token = request.cookies.get("session")?.value;
+
+  if (!token) {
+    return NextResponse.json(
+      { success: false, message: "Authentication required." },
+      { status: 401 }
+    );
+  }
+
   try {
+    const session = await verifySession(token);
+
+    if (!session) {
+      return NextResponse.json(
+        { success: false, message: "Invalid or expired session." },
+        { status: 401 }
+      );
+    }
+
     const [vehicles] = await pool.query(
       `SELECT ev_id, user_id, vehicle_number, model, connector_type
        FROM evs
-       WHERE user_id = ?`,
-      [1]
+       WHERE user_id = ?
+       ORDER BY ev_id`,
+      [session.userId]
     );
 
     const [chargingPoints] = await pool.query(`
