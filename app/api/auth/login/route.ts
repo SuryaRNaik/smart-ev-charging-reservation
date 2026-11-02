@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import pool from "@/lib/db";
@@ -16,6 +15,7 @@ type UserRow = RowDataPacket & {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+
     const email =
       typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
     const password =
@@ -58,6 +58,7 @@ export async function POST(request: NextRequest) {
     });
 
     const response = NextResponse.json({
+      success: true,
       message: "Login successful.",
       user: {
         userId: user.user_id,
