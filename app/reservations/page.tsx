@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -15,6 +14,7 @@ type ChargingPoint = {
   station_name: string;
   connector_type?: string;
   power_kw?: number;
+  tariff_id: number;
 };
 
 type Reservation = {
@@ -125,6 +125,15 @@ export default function ReservationsPage() {
       return;
     }
 
+    const selectedPoint = points.find(
+      (point) => point.point_id === Number(pointId)
+    );
+
+    if (!selectedPoint) {
+      setError("Please select a valid charging point.");
+      return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -136,6 +145,7 @@ export default function ReservationsPage() {
         body: JSON.stringify({
           ev_id: Number(evId),
           point_id: Number(pointId),
+          tariff_id: Number(selectedPoint.tariff_id),
           start_time: startTime,
           end_time: endTime,
         }),
@@ -177,7 +187,6 @@ export default function ReservationsPage() {
         },
         body: JSON.stringify({
           reservation_id: reservationId,
-          user_id: 1,
         }),
       });
 
@@ -247,7 +256,7 @@ export default function ReservationsPage() {
                 <option key={vehicle.ev_id} value={vehicle.ev_id}>
                   {vehicle.registration_number}
                   {vehicle.make || vehicle.model
-                    ? ` — ${[vehicle.make, vehicle.model].filter(Boolean).join(" ")}`
+                    ? ` - ${[vehicle.make, vehicle.model].filter(Boolean).join(" ")}`
                     : ""}
                 </option>
               ))}
@@ -268,9 +277,9 @@ export default function ReservationsPage() {
               <option value="">Select a charging point</option>
               {points.map((point) => (
                 <option key={point.point_id} value={point.point_id}>
-                  {point.station_name} — Point {point.point_id}
-                  {point.connector_type ? ` — ${point.connector_type}` : ""}
-                  {point.power_kw ? ` — ${point.power_kw} kW` : ""}
+                  {point.station_name} - Point {point.point_id}
+                  {point.connector_type ? ` - ${point.connector_type}` : ""}
+                  {point.power_kw ? ` - ${point.power_kw} kW` : ""}
                 </option>
               ))}
             </select>
@@ -347,7 +356,7 @@ export default function ReservationsPage() {
                   <p className="text-sm text-gray-600">
                     {reservation.station_name || "Charging station"}
                     {reservation.point_id
-                      ? ` — Point ${reservation.point_id}`
+                      ? ` - Point ${reservation.point_id}`
                       : ""}
                   </p>
                   {reservation.registration_number && (
