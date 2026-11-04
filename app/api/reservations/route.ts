@@ -2,6 +2,7 @@
 import { verifySession } from "@/lib/auth";
 import { NextRequest, NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { logActivity } from "@/lib/mongodb";
 
 async function getAuthenticatedUser(request: NextRequest) {
   const token = request.cookies.get("session")?.value;
@@ -236,6 +237,24 @@ export async function POST(request: NextRequest) {
     await connection.commit();
     transactionStarted = false;
 
+    try {
+      await logActivity({
+        action: "reservation.created",
+        userId: user.userId,
+        entityType: "reservation",
+        entityId: insertResult.insertId,
+        metadata: {
+          pointId: point_id,
+          evId: ev_id,
+          tariffId: tariff_id,
+          startTime: start_time,
+          endTime: end_time,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to log reservation creation activity:", error);
+    }
+
     return NextResponse.json(
       {
         success: true,
@@ -335,6 +354,17 @@ export async function DELETE(request: NextRequest) {
 
     await connection.commit();
     transactionStarted = false;
+
+    try {
+      await logActivity({
+        action: "reservation.cancelled",
+        userId: user.userId,
+        entityType: "reservation",
+        entityId: reservation_id,
+      });
+    } catch (error) {
+      console.error("Failed to log reservation cancellation activity:", error);
+    }
 
     return NextResponse.json({
       success: true,
