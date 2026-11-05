@@ -34,6 +34,7 @@ See:
 - [Architecture and data flow](./docs/architecture.md)
 - [MongoDB data model](./docs/mongodb-data-model.md)
 - [Test cases and verification status](./docs/test-cases.md)
+- [Project overview, objectives and conclusion](./docs/project-overview.md)
 - [Data dictionary](./docs/data-dictionary.md)
 
 ## Requirements
