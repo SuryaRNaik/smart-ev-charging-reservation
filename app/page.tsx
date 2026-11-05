@@ -2254,7 +2254,7 @@ function ActivityView() {
   }, []);
 
   useEffect(() => {
-    void loadLogs();
+    void Promise.resolve().then(loadLogs);
   }, [loadLogs]);
 
   return (
