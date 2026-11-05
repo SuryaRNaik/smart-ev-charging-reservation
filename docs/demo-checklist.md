@@ -36,7 +36,10 @@ Use this order to show the connection between the project problem, database desi
 - [ ] Create a reservation and show the saved reservation and Pending payment row in MySQL.
 - [ ] Attempt an overlapping reservation and show that the request is rejected.
 - [ ] Cancel an eligible reservation and show the updated status and MongoDB event.
-- [ ] Explain the current limitation: station/charging-point admin CRUD is still prototype-only until its protected MySQL API and UI integration are completed.
+- [ ] Sign in as admin and create a station with multiple charging points; show persistent point codes in MySQL.
+- [ ] Edit station details and change its point count; show the updated MySQL records.
+- [ ] Attempt to remove a charging point/station referenced by reservation history and show the HTTP 409 protection.
+- [ ] Attempt admin station access as a customer and show HTTP 403.
 
 ## 5. Quality and submission evidence
 
