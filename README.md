@@ -55,6 +55,8 @@ See:
 
 2. Create the database schema. **Warning:** `db/schema.sql` contains `DROP TABLE` statements and removes existing project data. Inspect it and run it only against a development database when a reset is intended.
 
+   If you already have a working project database with data you need to keep, **do not run `db/schema.sql`**. Run only the point-code migration below against that existing database.
+
    ```sh
    mysql -u YOUR_MYSQL_USER -p < db/schema.sql
    # For an existing database created before charging-point codes were added, run this migration once:
