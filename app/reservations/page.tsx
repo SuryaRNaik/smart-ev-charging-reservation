@@ -4,9 +4,8 @@ import { useEffect, useState } from "react";
 
 type Vehicle = {
   ev_id: number;
-  registration_number: string;
-  make?: string;
-  model?: string;
+  vehicle_number: string;
+  model: string;
 };
 
 type ChargingPoint = {
@@ -254,10 +253,7 @@ export default function ReservationsPage() {
               <option value="">Select your vehicle</option>
               {vehicles.map((vehicle) => (
                 <option key={vehicle.ev_id} value={vehicle.ev_id}>
-                  {vehicle.registration_number}
-                  {vehicle.make || vehicle.model
-                    ? ` - ${[vehicle.make, vehicle.model].filter(Boolean).join(" ")}`
-                    : ""}
+                  {vehicle.vehicle_number} - {vehicle.model}
                 </option>
               ))}
             </select>
