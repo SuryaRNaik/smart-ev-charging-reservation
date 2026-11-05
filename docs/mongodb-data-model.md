@@ -44,7 +44,7 @@ Example reservation event:
 }
 ```
 
-Current actions are `auth.login`, `reservation.created` and `reservation.cancelled`. Passwords, session tokens and other authentication secrets must never be written to activity metadata.
+Current actions are `auth.login`, `reservation.created`, `reservation.cancelled`, `station.created`, `station.updated` and `station.deleted`. Passwords, session tokens and other authentication secrets must never be written to activity metadata. (Station action metadata contains the station name and point count only.) Passwords, session tokens and other authentication secrets must never be written to activity metadata.
 
 ## Indexes
 
