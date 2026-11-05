@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { PoolConnection, RowDataPacket, ResultSetHeader } from "mysql2/promise";
+import type { RowDataPacket, ResultSetHeader } from "mysql2";
+import type { PoolConnection } from "mysql2/promise";
 import pool from "@/lib/db";
 import { verifySession } from "@/lib/auth";
 import { logActivity } from "@/lib/mongodb";
@@ -279,6 +280,23 @@ export async function POST(request: NextRequest) {
     await connection.beginTransaction();
     transactionStarted = true;
 
+    const [duplicates] = await connection.execute<StationRow[]>(
+      `SELECT station_id, station_name, location, city
+       FROM charging_stations
+       WHERE LOWER(station_name) = LOWER(?)
+       LIMIT 1
+       FOR UPDATE`,
+      [input.stationName]
+    );
+    if (duplicates.length > 0) {
+      await connection.rollback();
+      transactionStarted = false;
+      return NextResponse.json(
+        { success: false, message: `A station named "${input.stationName}" already exists.` },
+        { status: 409 }
+      );
+    }
+
     const [stationResult] = await connection.execute<ResultSetHeader>(
       `INSERT INTO charging_stations (station_name, location, city)
        VALUES (?, ?, ?)`,
@@ -385,6 +403,23 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json(
         { success: false, message: "Station not found." },
         { status: 404 }
+      );
+    }
+
+    const [duplicates] = await connection.execute<StationRow[]>(
+      `SELECT station_id, station_name, location, city
+       FROM charging_stations
+       WHERE LOWER(station_name) = LOWER(?) AND station_id <> ?
+       LIMIT 1
+       FOR UPDATE`,
+      [input.stationName, stationId]
+    );
+    if (duplicates.length > 0) {
+      await connection.rollback();
+      transactionStarted = false;
+      return NextResponse.json(
+        { success: false, message: `A station named "${input.stationName}" already exists.` },
+        { status: 409 }
       );
     }
 
@@ -634,9 +669,19 @@ export async function DELETE(request: NextRequest) {
       }
     }
     console.error("Admin stations DELETE error:", error);
+    const hasReferenceError =
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ER_ROW_IS_REFERENCED_2";
     return NextResponse.json(
-      { success: false, message: "Could not delete the station. Related records may still reference it." },
-      { status: 409 }
+      {
+        success: false,
+        message: hasReferenceError
+          ? "The station still has related records and cannot be deleted."
+          : "Could not delete the station because of a database error.",
+      },
+      { status: hasReferenceError ? 409 : 500 }
     );
   } finally {
     connection?.release();
