@@ -7,7 +7,7 @@ import type { FormEvent, ReactNode } from "react";
 /*  Types                                                                     */
 /* -------------------------------------------------------------------------- */
 
-type View = "dashboard" | "stations" | "evs" | "reservations" | "admin";
+type View = "dashboard" | "stations" | "evs" | "reservations" | "activity" | "admin";
 type ConnectorType = "CCS2" | "Type 2";
 type ChargingPointId = string;
 type ReservationStatus = "Booked" | "Confirmed" | "Cancelled" | "Completed" | "No-show";
@@ -22,6 +22,16 @@ interface Feedback {
 interface ActionResult {
   ok: boolean;
   message: string;
+}
+
+interface ActivityLogEntry {
+  id: string;
+  action: string;
+  userId: number;
+  entityType: string;
+  entityId: number;
+  timestamp: string | null;
+  metadata: Record<string, string | number | boolean | null>;
 }
 
 type Validation<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -205,6 +215,7 @@ const NAV_ITEMS: { view: View; label: string; icon: string }[] = [
   { view: "stations", label: "Stations", icon: "⚡" },
   { view: "evs", label: "My EVs", icon: "🚗" },
   { view: "reservations", label: "Reservations", icon: "🗓" },
+  { view: "activity", label: "Activity", icon: "◷" },
   { view: "admin", label: "Admin", icon: "⚙" },
 ];
 
@@ -2209,6 +2220,108 @@ function AdminView({
 /* -------------------------------------------------------------------------- */
 /*  Page                                                                      */
 /* -------------------------------------------------------------------------- */
+
+function ActivityView() {
+  const [logs, setLogs] = useState<ActivityLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadLogs = useCallback(async () => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const response = await fetch("/api/activity-logs", { cache: "no-store" });
+      const result = (await response.json()) as {
+        success?: boolean;
+        message?: string;
+        data?: ActivityLogEntry[];
+      };
+
+      if (!response.ok || result.success !== true) {
+        throw new Error(result.message || "Could not load activity logs.");
+      }
+
+      setLogs(Array.isArray(result.data) ? result.data : []);
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Could not load activity logs. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadLogs();
+  }, [loadLogs]);
+
+  return (
+    <div>
+      <PageHeader
+        title="Activity"
+        subtitle="Recent account and reservation events stored in MongoDB."
+      />
+
+      <section className={`${cardCls} overflow-hidden`} aria-labelledby="activity-heading">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+          <div>
+            <h2 id="activity-heading" className="text-lg font-semibold text-[#0f1b3d]">
+              Recent activity
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">Showing up to the latest 50 events available to your account.</p>
+          </div>
+          <button type="button" onClick={() => void loadLogs()} disabled={loading} className={btnSecondary}>
+            {loading ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
+
+        {loading ? (
+          <p className="p-6 text-sm text-slate-600" role="status">Loading activity logs...</p>
+        ) : error ? (
+          <div className="p-6" role="alert">
+            <p className="text-sm text-red-700">{error}</p>
+            <button type="button" onClick={() => void loadLogs()} className={`${btnSecondary} mt-3`}>
+              Try again
+            </button>
+          </div>
+        ) : logs.length === 0 ? (
+          <p className="p-6 text-sm text-slate-600">No activity has been recorded for this account yet.</p>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {logs.map((log) => {
+              const date = log.timestamp ? new Date(log.timestamp) : null;
+              const timestampLabel =
+                date && Number.isFinite(date.getTime()) ? date.toLocaleString() : "Time unavailable";
+              const metadataText = JSON.stringify(log.metadata ?? {});
+
+              return (
+                <li key={log.id} className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="font-semibold capitalize text-[#0f1b3d]">
+                      {log.action.replace(/\\./g, " ")}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {log.entityType} #{log.entityId} · User #{log.userId}
+                    </p>
+                    {metadataText !== "{}" ? (
+                      <p className="mt-2 break-words text-xs text-slate-600">Details: {metadataText}</p>
+                    ) : null}
+                  </div>
+                  <time dateTime={log.timestamp ?? undefined} className="shrink-0 text-xs text-slate-500">
+                    {timestampLabel}
+                  </time>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}
 
 export default function Page() {
   const [view, setView] = useState<View>("dashboard");
