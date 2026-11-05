@@ -14,8 +14,7 @@ async function getClient(): Promise<MongoClient> {
 
   if (!globalForMongo.mongoClientPromise) {
     const client = new MongoClient(uri, {
-      serverSelectionTimeoutMS: 8000,
-      family: 4,
+      serverSelectionTimeoutMS: 15000,
     });
 
     globalForMongo.mongoClientPromise = client.connect().catch((error) => {
