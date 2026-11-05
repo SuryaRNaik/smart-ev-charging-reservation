@@ -11,8 +11,9 @@ A DBMS Experiential Learning Level 3 project by Sriniket Deeduvanu and Surya R N
 - Reservation creation and cancellation with server-side ownership and time validation.
 - Charging-point locking and overlapping active-reservation checks.
 - A pending payment record is inserted in the same MySQL transaction as a new reservation. Its amount is initialized to zero until a simulated charging session finalizes it; no real payment gateway is integrated.
-- MongoDB activity events for successful login, reservation creation and cancellation.
+- MongoDB activity events for successful login, reservation creation/cancellation, and station creation/update/deletion.
 - Authenticated activity-log retrieval and an Activity screen. Customers see their own events; administrators can inspect the full audit stream.
+- Admin-only MySQL station and charging-point management with unique human-readable point codes and reservation-history protection.
 - An advanced SQL demonstration script, a reservation-details view, overlap-prevention triggers and reservation indexes.
 
 ## Technology stack
@@ -56,6 +57,9 @@ See:
 
    ```sh
    mysql -u YOUR_MYSQL_USER -p < db/schema.sql
+   # For an existing database created before charging-point codes were added, run this migration once:
+   mysql -u YOUR_MYSQL_USER -p smart_ev_charging_test < db/migrations/20261106_add_charging_point_code.sql
+
    mysql -u YOUR_MYSQL_USER -p smart_ev_charging_test < db/seed.sql
    mysql -u YOUR_MYSQL_USER -p smart_ev_charging_test < db/views.sql
    mysql -u YOUR_MYSQL_USER -p smart_ev_charging_test < db/triggers.sql
@@ -95,6 +99,7 @@ See:
 | `POST` | `/api/auth/register` | Register a customer |
 | `POST` | `/api/auth/login` | Verify credentials and create a session |
 | `GET` | `/api/stations` | Read station summaries from MySQL |
+| `GET`, `POST`, `PATCH`, `DELETE` | `/api/admin/stations` | Admin-only station and charging-point management; changes are transactional and persisted in MySQL |
 | `GET` | `/api/booking-options` | Load the signed-in user's EVs and available booking options |
 | `GET`, `POST`, `PATCH`, `DELETE` | `/api/evs` | List, register, edit and delete the signed-in user's EVs |
 | `GET` | `/api/reservations` | Read allowed reservation history |
@@ -121,10 +126,10 @@ npm run build
 
 ## Current limitations
 
-- The Admin station-management screen is still prototype UI backed by local demo state; protected MySQL station/charging-point CRUD endpoints remain to be implemented.
+- Station name, location, point-count and connector/power values are persisted; the current tariff is updated in place, so the schema does not keep an immutable historical tariff snapshot for each reservation.
 - Payment is simulated. The pending payment row is created with amount zero and no payment gateway is connected.
 - Charging sessions are demonstration records; physical charging hardware is out of scope.
-- Activity events currently cover login and reservation creation/cancellation. Station-management events can be added when admin CRUD is implemented.
+- Activity events currently cover login, reservation creation/cancellation, and admin station creation/update/deletion.
 
 ## Team
 
