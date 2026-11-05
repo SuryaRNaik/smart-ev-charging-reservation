@@ -39,11 +39,13 @@ type Validation<T> = { ok: true; value: T } | { ok: false; error: string };
 interface Station {
   id: number;
   name: string;
+  location: string;
   city: string;
   connector: ConnectorType;
   powerKW: number;
   tariffPerKWh: number;
   pointIds: ChargingPointId[];
+  activeReservations: number;
 }
 
 interface ApiChargingPoint {
@@ -81,20 +83,6 @@ interface Ev {
   model: string;
   batteryKWh: number;
   connector: ConnectorType;
-}
-
-interface Reservation {
-  ref: string;
-  stationId: number;
-  stationName: string;
-  pointId: ChargingPointId;
-  evId: string;
-  vehicle: string;
-  startMs: number;
-  endMs: number;
-  energyKWh: number;
-  cost: number;
-  status: ReservationStatus;
 }
 
 interface ReservationForm {
@@ -150,6 +138,7 @@ interface ApiReservation {
 
 interface StationDraft {
   name: string;
+  location: string;
   city: string;
   connector: ConnectorType;
   power: string;
@@ -170,45 +159,6 @@ interface EvDraft {
 /* -------------------------------------------------------------------------- */
 
 const CONNECTORS: ConnectorType[] = ["CCS2", "Type 2"];
-
-const INITIAL_STATIONS: Station[] = [
-  {
-    id: 1,
-    name: "Indiranagar EV Hub",
-    city: "Bengaluru",
-    connector: "CCS2",
-    powerKW: 60,
-    tariffPerKWh: 18,
-    pointIds: ["IND-01", "IND-02", "IND-03", "IND-04"],
-  },
-  {
-    id: 2,
-    name: "MG Road Charging Plaza",
-    city: "Bengaluru",
-    connector: "Type 2",
-    powerKW: 22,
-    tariffPerKWh: 14,
-    pointIds: ["MGR-01", "MGR-02", "MGR-03"],
-  },
-  {
-    id: 3,
-    name: "Whitefield Fast Charge",
-    city: "Bengaluru",
-    connector: "CCS2",
-    powerKW: 120,
-    tariffPerKWh: 22,
-    pointIds: ["WHT-01", "WHT-02"],
-  },
-  {
-    id: 4,
-    name: "Mysuru Green Station",
-    city: "Mysuru",
-    connector: "Type 2",
-    powerKW: 30,
-    tariffPerKWh: 15,
-    pointIds: ["MYS-01", "MYS-02", "MYS-03", "MYS-04", "MYS-05"],
-  },
-];
 
 const NAV_ITEMS: { view: View; label: string; icon: string }[] = [
   { view: "dashboard", label: "Dashboard", icon: "▦" },
@@ -560,10 +510,6 @@ function derivePrefix(station: Station): string {
   return first ? first.split("-")[0] : "";
 }
 
-function isLive(r: Reservation, nowMs: number): boolean {
-  return r.status === "Confirmed" && r.endMs > nowMs;
-}
-
 function displayApiStatus(reservation: ApiReservation, nowMs: number): DisplayStatus {
   if (reservation.status === "Cancelled") return "Cancelled";
   if (reservation.status === "Completed") return "Completed";
@@ -581,58 +527,80 @@ function isApiReservationCancellable(reservation: ApiReservation): boolean {
 function validateStationDraft(
   draft: StationDraft,
   stations: Station[],
-  editing: Station | null,
-  liveReservations: Reservation[]
+  editing: Station | null
 ): Validation<Omit<Station, "id">> {
   const fail = (error: string): Validation<Omit<Station, "id">> => ({ ok: false, error });
   const name = draft.name.trim();
+  const location = draft.location.trim();
   const city = draft.city.trim();
+
   if (!name) return fail("Station name is required.");
+  if (!location) return fail("Station location is required.");
   if (!city) return fail("City is required.");
   if (draft.power.trim() === "") return fail("Power rating is required.");
+
   const power = Number(draft.power);
-  if (!Number.isFinite(power) || power <= 0) return fail("Power rating must be a number greater than 0.");
+  if (!Number.isFinite(power) || power <= 0 || power > 9999.99) {
+    return fail("Power rating must be greater than 0 and no more than 9999.99 kW.");
+  }
+  if (!/^(?:\d+(?:\.\d{1,2})?)$/.test(draft.power.trim())) {
+    return fail("Power rating must have at most two decimal places.");
+  }
   if (draft.tariff.trim() === "") return fail("Tariff per kWh is required.");
+
   const tariff = Number(draft.tariff);
-  if (!Number.isFinite(tariff) || tariff < 0) return fail("Tariff must be a number that is 0 or higher.");
+  if (!Number.isFinite(tariff) || tariff < 0 || tariff > 999999.99) {
+    return fail("Tariff must be between 0 and 999999.99.");
+  }
+  if (!/^(?:\d+(?:\.\d{1,2})?)$/.test(draft.tariff.trim())) {
+    return fail("Tariff must have at most two decimal places.");
+  }
+
   const count = Number(draft.pointCount);
   if (draft.pointCount.trim() === "" || !Number.isInteger(count) || count < 1 || count > 12) {
     return fail("Number of charging points must be a whole number between 1 and 12.");
   }
+
   const prefix = (editing ? derivePrefix(editing) || draft.prefix : draft.prefix).trim().toUpperCase();
   if (!/^[A-Z0-9]{2,5}$/.test(prefix)) {
     return fail("Charging-point prefix must be 2 to 5 letters or digits (for example IND).");
   }
+
   const duplicate = stations.some(
-    (s) => s.id !== (editing ? editing.id : -1) && s.name.trim().toLowerCase() === name.toLowerCase()
+    (station) =>
+      station.id !== (editing ? editing.id : -1) &&
+      station.name.trim().toLowerCase() === name.toLowerCase()
   );
   if (duplicate) return fail(`A station named "${name}" already exists.`);
 
   const pointIds: ChargingPointId[] = Array.from(
     { length: count },
-    (_, i) => `${prefix}-${String(i + 1).padStart(2, "0")}`
+    (_, index) => `${prefix}-${String(index + 1).padStart(2, "0")}`
   );
   const taken = new Set<string>();
-  for (const s of stations) {
-    if (editing && s.id === editing.id) continue;
-    s.pointIds.forEach((p) => taken.add(p));
-  }
-  const clash = pointIds.find((p) => taken.has(p));
-  if (clash) return fail(`Charging point ID ${clash} is already used by another station. Choose a different prefix.`);
-
-  if (editing) {
-    const removed = editing.pointIds.filter((p) => !pointIds.includes(p));
-    const blocked = liveReservations.filter((r) => r.stationId === editing.id && removed.includes(r.pointId));
-    if (blocked.length > 0) {
-      return fail(
-        `Cannot remove charging point(s) ${Array.from(new Set(blocked.map((r) => r.pointId))).join(
-          ", "
-        )} because they have active reservations. Cancel those reservations first.`
-      );
-    }
+  for (const station of stations) {
+    if (editing && station.id === editing.id) continue;
+    station.pointIds.forEach((pointId) => taken.add(pointId));
   }
 
-  return { ok: true, value: { name, city, connector: draft.connector, powerKW: power, tariffPerKWh: tariff, pointIds } };
+  const clash = pointIds.find((pointId) => taken.has(pointId));
+  if (clash) {
+    return fail(`Charging point code ${clash} is already used by another station. Choose a different prefix.`);
+  }
+
+  return {
+    ok: true,
+    value: {
+      name,
+      location,
+      city,
+      connector: draft.connector,
+      powerKW: power,
+      tariffPerKWh: tariff,
+      pointIds,
+      activeReservations: editing?.activeReservations ?? 0,
+    },
+  };
 }
 
 function validateEvDraft(
@@ -1937,19 +1905,39 @@ function EvsView({
   );
 }
 
-function AdminView({
-  stations,
-  liveReservations,
-  onSave,
-  onDelete,
-}: {
-  stations: Station[];
-  liveReservations: Reservation[];
-  onSave: (draft: StationDraft, editingId: number | null) => ActionResult;
-  onDelete: (id: number) => ActionResult;
-}) {
+function parseAdminStationsResponse(value: unknown): Station[] {
+  if (!isRecord(value) || value.success !== true || !Array.isArray(value.data)) {
+    throw new Error("The admin stations API returned an invalid response.");
+  }
+
+  return value.data.map((row: unknown): Station => {
+    if (!isRecord(row)) throw new Error("The admin stations API returned an invalid station.");
+    const connector = toConnector(parseText(row.connector_type, "station connector"));
+    if (!connector) throw new Error("The admin stations API returned an unsupported connector.");
+
+    const pointIds = row.point_ids;
+    if (!Array.isArray(pointIds) || !pointIds.every((id) => typeof id === "string")) {
+      throw new Error("The admin stations API returned invalid charging-point codes.");
+    }
+
+    return {
+      id: parseId(row.station_id),
+      name: parseText(row.station_name, "station name"),
+      location: parseText(row.location, "station location"),
+      city: parseText(row.city, "station city"),
+      connector,
+      powerKW: parseNumber(row.power_kw, "station power rating"),
+      tariffPerKWh: parseNumber(row.rate_per_kwh, "station tariff"),
+      pointIds,
+      activeReservations: parseNumber(row.active_reservations, "active reservation count"),
+    };
+  });
+}
+
+function AdminView() {
   const emptyDraft: StationDraft = {
     name: "",
+    location: "",
     city: "",
     connector: "CCS2",
     power: "",
@@ -1957,261 +1945,420 @@ function AdminView({
     pointCount: "2",
     prefix: "",
   };
+
+  const [stations, setStations] = useState<Station[]>([]);
   const [draft, setDraft] = useState<StationDraft>(emptyDraft);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [confirmId, setConfirmId] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [accessDenied, setAccessDenied] = useState(false);
   const formRef = useRef<HTMLFormElement | null>(null);
 
-  const editingStation = editingId === null ? undefined : stations.find((s) => s.id === editingId);
+  const editingStation = editingId === null ? undefined : stations.find((station) => station.id === editingId);
+
+  const loadStations = useCallback(async () => {
+    setLoading(true);
+    setLoadError("");
+    setAccessDenied(false);
+
+    try {
+      const response = await fetch("/api/admin/stations", { cache: "no-store" });
+      if (response.status === 401 || response.status === 403) {
+        setAccessDenied(true);
+      }
+      const payload = await readApiResponse(response, "");
+      setStations(parseAdminStationsResponse(payload));
+    } catch (error) {
+      setStations([]);
+      setLoadError(
+        error instanceof Error ? error.message : "Could not load station management data."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadStations);
+  }, [loadStations]);
 
   const resetForm = () => {
     setDraft(emptyDraft);
     setEditingId(null);
+    setConfirmId(null);
   };
 
-  const startEdit = (s: Station) => {
-    setEditingId(s.id);
+  const startEdit = (station: Station) => {
+    setEditingId(station.id);
     setConfirmId(null);
     setFeedback(null);
     setDraft({
-      name: s.name,
-      city: s.city,
-      connector: s.connector,
-      power: String(s.powerKW),
-      tariff: String(s.tariffPerKWh),
-      pointCount: String(s.pointIds.length),
-      prefix: derivePrefix(s),
+      name: station.name,
+      location: station.location,
+      city: station.city,
+      connector: station.connector,
+      power: String(station.powerKW),
+      tariff: String(station.tariffPerKWh),
+      pointCount: String(station.pointIds.length),
+      prefix: derivePrefix(station),
     });
     formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const result = onSave(draft, editingId);
-    setFeedback({ kind: result.ok ? "success" : "error", text: result.message });
-    if (result.ok) resetForm();
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setFeedback(null);
+
+    const validation = validateStationDraft(draft, stations, editingStation ?? null);
+    if (!validation.ok) {
+      setFeedback({ kind: "error", text: validation.error });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const body = {
+        ...(editingId !== null ? { station_id: editingId } : {}),
+        station_name: validation.value.name,
+        location: validation.value.location,
+        city: validation.value.city,
+        connector_type: validation.value.connector,
+        power_kw: validation.value.powerKW,
+        rate_per_kwh: validation.value.tariffPerKWh,
+        point_count: validation.value.pointIds.length,
+        point_code_prefix: editingStation ? derivePrefix(editingStation) : draft.prefix.trim().toUpperCase(),
+      };
+
+      const response = await fetch("/api/admin/stations", {
+        method: editingId === null ? "POST" : "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await readApiResponse(response, "");
+      const message =
+        typeof payload.message === "string" ? payload.message : "Station saved successfully.";
+
+      resetForm();
+      await loadStations();
+      setFeedback({ kind: "success", text: message });
+    } catch (error) {
+      setFeedback({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Could not save the station. Please try again.",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleDelete = (id: number) => {
-    const result = onDelete(id);
-    setFeedback({ kind: result.ok ? "success" : "error", text: result.message });
-    setConfirmId(null);
-    if (result.ok && editingId === id) resetForm();
+  const handleDelete = async (stationId: number) => {
+    setSaving(true);
+    setFeedback(null);
+
+    try {
+      const response = await fetch("/api/admin/stations", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ station_id: stationId }),
+      });
+      const payload = await readApiResponse(response, "");
+      if (editingId === stationId) resetForm();
+      setConfirmId(null);
+      await loadStations();
+      setFeedback({
+        kind: "success",
+        text: typeof payload.message === "string" ? payload.message : "Station deleted successfully.",
+      });
+    } catch (error) {
+      setFeedback({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Could not delete the station. Please try again.",
+      });
+      setConfirmId(null);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div>
-      <PageHeader title="Admin · Station management" subtitle="Add, edit and remove charging stations." />
+      <PageHeader
+        title="Admin · Station management"
+        subtitle="Manage stations, charging points and tariffs stored in MySQL."
+      />
       <DemoNotice>
-        Prototype admin screen: changes update local demo state only and are <strong>not saved to MySQL</strong>. No
-        authentication is implemented here; real admin permissions will be enforced by the backend later.
+        Protected administrator area. Changes are saved to MySQL. Charging points or stations with reservation history
+        cannot be removed.
       </DemoNotice>
 
       <div className="mb-6">
+        {loadError ? (
+          <div className="mb-3 rounded-xl border border-red-200 bg-red-50 p-4" role="alert">
+            <p className="text-sm font-medium text-red-800">{loadError}</p>
+            <button type="button" onClick={() => void loadStations()} className={`${btnSecondary} mt-3`}>
+              Retry loading stations
+            </button>
+          </div>
+        ) : null}
         <Alert feedback={feedback} />
       </div>
 
-      <section className={`${cardCls} mb-8 overflow-hidden`} aria-labelledby="admin-table-heading">
-        <div className="border-b border-slate-100 px-5 py-4">
-          <h2 id="admin-table-heading" className="text-lg font-semibold text-[#0f1b3d]">
-            Stations ({stations.length})
-          </h2>
-        </div>
-        {stations.length === 0 ? (
-          <div className="p-6">
-            <EmptyState icon="🏢" title="No stations" message="Use the form below to add the first charging station." />
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th scope="col" className="px-5 py-3">Station</th>
-                  <th scope="col" className="px-5 py-3">City</th>
-                  <th scope="col" className="px-5 py-3">Connector</th>
-                  <th scope="col" className="px-5 py-3">Power</th>
-                  <th scope="col" className="px-5 py-3">Tariff</th>
-                  <th scope="col" className="px-5 py-3">Points</th>
-                  <th scope="col" className="px-5 py-3">Active bookings</th>
-                  <th scope="col" className="px-5 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {stations.map((s) => {
-                  const liveCount = liveReservations.filter((r) => r.stationId === s.id).length;
-                  return (
-                    <tr key={s.id} className="align-middle">
-                      <td className="px-5 py-3 font-medium text-[#0f1b3d]">{s.name}</td>
-                      <td className="px-5 py-3 text-slate-700">{s.city}</td>
-                      <td className="px-5 py-3">
-                        <ConnectorBadge connector={s.connector} />
-                      </td>
-                      <td className="px-5 py-3 text-slate-700">{s.powerKW} kW</td>
-                      <td className="px-5 py-3 text-slate-700">₹{s.tariffPerKWh}/kWh</td>
-                      <td className="px-5 py-3 text-slate-700">{s.pointIds.length}</td>
-                      <td className="px-5 py-3 text-slate-700">{liveCount}</td>
-                      <td className="px-5 py-3">
-                        <div className="flex flex-wrap items-center justify-end gap-2">
-                          {confirmId === s.id ? (
-                            <>
-                              <span className="text-xs font-medium text-red-700">Delete this station?</span>
-                              <button type="button" onClick={() => handleDelete(s.id)} className={`${btnDanger} px-3 py-1.5`}>
-                                Confirm delete
-                              </button>
-                              <button type="button" onClick={() => setConfirmId(null)} className={`${btnSecondary} px-3 py-1.5`}>
-                                Keep
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button type="button" onClick={() => startEdit(s)} className={`${btnSecondary} px-3 py-1.5`}>
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setConfirmId(s.id);
-                                  setFeedback(null);
-                                }}
-                                className={`${btnDanger} px-3 py-1.5`}
-                              >
-                                Delete
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <form ref={formRef} onSubmit={handleSubmit} noValidate className={`${cardCls} space-y-4 p-5 sm:p-6`}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold text-[#0f1b3d]">
-            {editingStation ? `Edit station: ${editingStation.name}` : "Add station"}
-          </h2>
-          {editingStation ? (
-            <button type="button" onClick={resetForm} className={btnSecondary}>
-              Cancel editing
-            </button>
-          ) : null}
-        </div>
-        {editingStation ? (
-          <p className="text-xs text-slate-500">
-            Existing reservations keep the power and tariff they were booked with. Removing a charging point that has an
-            active reservation is blocked.
+      {accessDenied ? (
+        <section className={`${cardCls} p-6`}>
+          <h2 className="text-lg font-semibold text-[#0f1b3d]">Administrator access required</h2>
+          <p className="mt-2 text-sm text-slate-600">
+            Sign in with an account whose MySQL role is <code>admin</code> to manage stations and charging points.
           </p>
-        ) : null}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Field id="adm-name" label="Station name">
-            <input
-              id="adm-name"
-              type="text"
-              aria-required="true"
-              value={draft.name}
-              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-              className={inputCls}
-              autoComplete="off"
-            />
-          </Field>
-          <Field id="adm-city" label="City">
-            <input
-              id="adm-city"
-              type="text"
-              aria-required="true"
-              value={draft.city}
-              onChange={(e) => setDraft({ ...draft, city: e.target.value })}
-              className={inputCls}
-              autoComplete="off"
-            />
-          </Field>
-          <Field id="adm-connector" label="Connector type">
-            <select
-              id="adm-connector"
-              value={draft.connector}
-              onChange={(e) => setDraft({ ...draft, connector: toConnector(e.target.value) ?? "CCS2" })}
-              className={inputCls}
-            >
-              {CONNECTORS.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field id="adm-power" label="Power rating (kW)" hint="Must be greater than 0">
-            <input
-              id="adm-power"
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="any"
-              aria-required="true"
-              value={draft.power}
-              onChange={(e) => setDraft({ ...draft, power: e.target.value })}
-              className={inputCls}
-            />
-          </Field>
-          <Field id="adm-tariff" label="Tariff (₹ per kWh)" hint="0 or higher">
-            <input
-              id="adm-tariff"
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="any"
-              aria-required="true"
-              value={draft.tariff}
-              onChange={(e) => setDraft({ ...draft, tariff: e.target.value })}
-              className={inputCls}
-            />
-          </Field>
-          <Field id="adm-count" label="Number of charging points" hint="Between 1 and 12">
-            <input
-              id="adm-count"
-              type="number"
-              inputMode="numeric"
-              min="1"
-              max="12"
-              step="1"
-              aria-required="true"
-              value={draft.pointCount}
-              onChange={(e) => setDraft({ ...draft, pointCount: e.target.value })}
-              className={inputCls}
-            />
-          </Field>
-          <Field
-            id="adm-prefix"
-            label="Charging-point ID prefix"
-            hint={editingStation ? "Fixed after creation" : "2–5 letters/digits, e.g. KOR → KOR-01, KOR-02"}
-          >
-            <input
-              id="adm-prefix"
-              type="text"
-              maxLength={5}
-              aria-required="true"
-              disabled={editingStation !== undefined}
-              value={editingStation ? derivePrefix(editingStation) : draft.prefix}
-              onChange={(e) => setDraft({ ...draft, prefix: e.target.value.toUpperCase() })}
-              className={inputCls}
-              autoComplete="off"
-            />
-          </Field>
-        </div>
-        <div className="flex flex-wrap gap-3 border-t border-slate-100 pt-4">
-          <button type="submit" className={btnPrimary}>
-            {editingStation ? "Save changes" : "Add station"}
-          </button>
-          <button type="button" onClick={resetForm} className={btnSecondary}>
-            Reset form
-          </button>
-        </div>
-      </form>
+        </section>
+      ) : (
+        <>
+          <section className={`${cardCls} mb-8 overflow-hidden`} aria-labelledby="admin-table-heading">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+              <h2 id="admin-table-heading" className="text-lg font-semibold text-[#0f1b3d]">
+                Stations ({stations.length})
+              </h2>
+              <button type="button" onClick={() => void loadStations()} disabled={loading || saving} className={btnSecondary}>
+                {loading ? "Refreshing..." : "Refresh"}
+              </button>
+            </div>
+
+            {loading ? (
+              <p className="p-6 text-sm text-slate-600" role="status">Loading stations from MySQL...</p>
+            ) : stations.length === 0 ? (
+              <div className="p-6">
+                <EmptyState icon="🏢" title="No stations" message="Use the form below to create the first charging station." />
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-slate-200 text-sm">
+                  <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th scope="col" className="px-5 py-3">Station</th>
+                      <th scope="col" className="px-5 py-3">City</th>
+                      <th scope="col" className="px-5 py-3">Connector</th>
+                      <th scope="col" className="px-5 py-3">Power</th>
+                      <th scope="col" className="px-5 py-3">Tariff</th>
+                      <th scope="col" className="px-5 py-3">Charging points</th>
+                      <th scope="col" className="px-5 py-3">Active bookings</th>
+                      <th scope="col" className="px-5 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {stations.map((station) => (
+                      <tr key={station.id} className="align-middle">
+                        <td className="px-5 py-3">
+                          <p className="font-medium text-[#0f1b3d]">{station.name}</p>
+                          <p className="mt-0.5 text-xs text-slate-500">{station.location}</p>
+                        </td>
+                        <td className="px-5 py-3 text-slate-700">{station.city}</td>
+                        <td className="px-5 py-3"><ConnectorBadge connector={station.connector} /></td>
+                        <td className="px-5 py-3 text-slate-700">{station.powerKW} kW</td>
+                        <td className="px-5 py-3 text-slate-700">₹{station.tariffPerKWh}/kWh</td>
+                        <td className="px-5 py-3">
+                          <p className="font-medium text-slate-700">{station.pointIds.length}</p>
+                          <p className="mt-0.5 max-w-52 break-words text-xs text-slate-500">
+                            {station.pointIds.join(", ") || "No points"}
+                          </p>
+                        </td>
+                        <td className="px-5 py-3 text-slate-700">{station.activeReservations}</td>
+                        <td className="px-5 py-3">
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            {confirmId === station.id ? (
+                              <>
+                                <span className="text-xs font-medium text-red-700">Delete this station?</span>
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => void handleDelete(station.id)}
+                                  className={`${btnDanger} px-3 py-1.5`}
+                                >
+                                  Confirm delete
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => setConfirmId(null)}
+                                  className={`${btnSecondary} px-3 py-1.5`}
+                                >
+                                  Keep
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => startEdit(station)}
+                                  className={`${btnSecondary} px-3 py-1.5`}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={() => {
+                                    setConfirmId(station.id);
+                                    setFeedback(null);
+                                  }}
+                                  className={`${btnDanger} px-3 py-1.5`}
+                                >
+                                  Delete
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <form ref={formRef} onSubmit={handleSubmit} noValidate className={`${cardCls} space-y-4 p-5 sm:p-6`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold text-[#0f1b3d]">
+                {editingStation ? `Edit station: ${editingStation.name}` : "Add station"}
+              </h2>
+              {editingStation ? (
+                <button type="button" disabled={saving} onClick={resetForm} className={btnSecondary}>
+                  Cancel editing
+                </button>
+              ) : null}
+            </div>
+
+            {editingStation ? (
+              <p className="text-xs text-slate-500">
+                Charging-point codes stay fixed after creation. Reducing the point count or deleting the station is
+                blocked when any affected point has reservation history.
+              </p>
+            ) : null}
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <Field id="adm-name" label="Station name">
+                <input
+                  id="adm-name"
+                  type="text"
+                  maxLength={150}
+                  required
+                  value={draft.name}
+                  onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                  className={inputCls}
+                  autoComplete="off"
+                />
+              </Field>
+              <Field id="adm-location" label="Location">
+                <input
+                  id="adm-location"
+                  type="text"
+                  maxLength={255}
+                  required
+                  value={draft.location}
+                  onChange={(event) => setDraft({ ...draft, location: event.target.value })}
+                  className={inputCls}
+                  autoComplete="street-address"
+                />
+              </Field>
+              <Field id="adm-city" label="City">
+                <input
+                  id="adm-city"
+                  type="text"
+                  maxLength={100}
+                  required
+                  value={draft.city}
+                  onChange={(event) => setDraft({ ...draft, city: event.target.value })}
+                  className={inputCls}
+                  autoComplete="address-level2"
+                />
+              </Field>
+              <Field id="adm-connector" label="Connector type">
+                <select
+                  id="adm-connector"
+                  value={draft.connector}
+                  onChange={(event) => setDraft({ ...draft, connector: toConnector(event.target.value) ?? "CCS2" })}
+                  className={inputCls}
+                >
+                  {CONNECTORS.map((connector) => (
+                    <option key={connector} value={connector}>{connector}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field id="adm-power" label="Power rating (kW)" hint="Greater than 0; up to 2 decimals">
+                <input
+                  id="adm-power"
+                  type="number"
+                  inputMode="decimal"
+                  min="0.01"
+                  max="9999.99"
+                  step="0.01"
+                  required
+                  value={draft.power}
+                  onChange={(event) => setDraft({ ...draft, power: event.target.value })}
+                  className={inputCls}
+                />
+              </Field>
+              <Field id="adm-tariff" label="Tariff (₹ per kWh)" hint="0 or higher; up to 2 decimals">
+                <input
+                  id="adm-tariff"
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  max="999999.99"
+                  step="0.01"
+                  required
+                  value={draft.tariff}
+                  onChange={(event) => setDraft({ ...draft, tariff: event.target.value })}
+                  className={inputCls}
+                />
+              </Field>
+              <Field id="adm-count" label="Number of charging points" hint="Between 1 and 12">
+                <input
+                  id="adm-count"
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  max="12"
+                  step="1"
+                  required
+                  value={draft.pointCount}
+                  onChange={(event) => setDraft({ ...draft, pointCount: event.target.value })}
+                  className={inputCls}
+                />
+              </Field>
+              <Field
+                id="adm-prefix"
+                label="Charging-point code prefix"
+                hint={editingStation ? "Fixed after creation" : "2–5 letters/digits, e.g. KOR → KOR-01, KOR-02"}
+              >
+                <input
+                  id="adm-prefix"
+                  type="text"
+                  maxLength={5}
+                  required
+                  disabled={editingStation !== undefined || saving}
+                  value={editingStation ? derivePrefix(editingStation) : draft.prefix}
+                  onChange={(event) => setDraft({ ...draft, prefix: event.target.value.toUpperCase() })}
+                  className={inputCls}
+                  autoComplete="off"
+                />
+              </Field>
+            </div>
+
+            <div className="flex flex-wrap gap-3 border-t border-slate-100 pt-4">
+              <button type="submit" disabled={saving || loading} className={btnPrimary}>
+                {saving ? "Saving..." : editingStation ? "Save changes" : "Add station"}
+              </button>
+              <button type="button" disabled={saving} onClick={resetForm} className={btnSecondary}>
+                Reset form
+              </button>
+            </div>
+          </form>
+        </>
+      )}
     </div>
   );
 }
@@ -2327,7 +2474,6 @@ export default function Page() {
   const [menuOpen, setMenuOpen] = useState<boolean>(false);
   const [nowMs, setNowMs] = useState<number>(0);
 
-  const [stations, setStations] = useState<Station[]>(INITIAL_STATIONS);
   const [dashboardStations, setDashboardStations] = useState<DashboardStation[]>([]);
   const [dashboardStationsLoading, setDashboardStationsLoading] = useState<boolean>(true);
   const [dashboardStationsError, setDashboardStationsError] = useState<string | null>(null);
@@ -2335,7 +2481,6 @@ export default function Page() {
   const [evsLoading, setEvsLoading] = useState<boolean>(true);
   const [evsError, setEvsError] = useState<string | null>(null);
   const [evsAuthRequired, setEvsAuthRequired] = useState<boolean>(false);
-  const [reservations] = useState<Reservation[]>([]);
 
   const [form, setForm] = useState<ReservationForm>({
     stationId: null,
@@ -2356,8 +2501,6 @@ export default function Page() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [cancellingId, setCancellingId] = useState<number | null>(null);
-
-  const nextStationId = useRef<number>(5);
 
   const loadEvs = useCallback(async (): Promise<boolean> => {
     setEvsLoading(true);
@@ -2481,11 +2624,6 @@ export default function Page() {
   }, [menuOpen]);
 
   /* Derived data */
-  const liveReservations = useMemo(
-    () => reservations.filter((r) => isLive(r, nowMs)),
-    [reservations, nowMs]
-  );
-
   /* Navigation */
   const go = (next: View) => {
     setView(next);
@@ -2715,40 +2853,6 @@ export default function Page() {
     }
   };
 
-  /* Admin handlers */
-  const saveStation = (draft: StationDraft, editingId: number | null): ActionResult => {
-    const editing = editingId === null ? null : stations.find((s) => s.id === editingId) ?? null;
-    if (editingId !== null && !editing) {
-      return { ok: false, message: "The station you were editing no longer exists." };
-    }
-    const check = validateStationDraft(draft, stations, editing, liveReservations);
-    if (!check.ok) return { ok: false, message: check.error };
-    if (editing) {
-      setStations((prev) => prev.map((s) => (s.id === editing.id ? { ...s, ...check.value } : s)));
-      return { ok: true, message: `Station "${check.value.name}" updated (demo state only, not saved to MySQL).` };
-    }
-    const id = nextStationId.current;
-    nextStationId.current += 1;
-    setStations((prev) => [...prev, { id, ...check.value }]);
-    return { ok: true, message: `Station "${check.value.name}" added (demo state only, not saved to MySQL).` };
-  };
-
-  const deleteStation = (id: number): ActionResult => {
-    const target = stations.find((s) => s.id === id);
-    if (!target) return { ok: false, message: "That station no longer exists." };
-    const active = liveReservations.filter((r) => r.stationId === id).length;
-    if (active > 0) {
-      return {
-        ok: false,
-        message: `"${target.name}" cannot be deleted because it has ${active} active reservation${
-          active === 1 ? "" : "s"
-        }. Cancel ${active === 1 ? "it" : "them"} first.`,
-      };
-    }
-    setStations((prev) => prev.filter((s) => s.id !== id));
-    return { ok: true, message: `Station "${target.name}" deleted (demo state only, not saved to MySQL).` };
-  };
-
   const liveCount = apiReservations.filter(
     (reservation) =>
       ["Booked", "Confirmed"].includes(reservation.status) && reservation.endMs > nowMs
@@ -2925,12 +3029,7 @@ export default function Page() {
           ) : null}
           {view === "activity" ? <ActivityView /> : null}
           {view === "admin" ? (
-            <AdminView
-              stations={stations}
-              liveReservations={liveReservations}
-              onSave={saveStation}
-              onDelete={deleteStation}
-            />
+            <AdminView />
           ) : null}
 
           <footer className="mt-10 border-t border-slate-200 pt-4 text-center text-xs text-slate-500">
