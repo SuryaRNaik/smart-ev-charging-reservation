@@ -45,6 +45,7 @@ erDiagram
 
     charging_points {
         INT point_id PK
+        VARCHAR point_code UK
         INT station_id FK
         VARCHAR connector_type
         DECIMAL power_kw
