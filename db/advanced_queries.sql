@@ -35,8 +35,8 @@ INSERT INTO charging_stations (station_name, location, city)
 VALUES ('DBMS DML Demo Station', 'Temporary test location', 'Bengaluru');
 SET @demo_station_id = LAST_INSERT_ID();
 
-INSERT INTO charging_points (station_id, connector_type, power_kw, status)
-VALUES (@demo_station_id, 'CCS2', 50.00, 'Available');
+INSERT INTO charging_points (station_id, point_code, connector_type, power_kw, status)
+VALUES (@demo_station_id, 'SQLDEMO-01', 'CCS2', 50.00, 'Available');
 SET @demo_point_id = LAST_INSERT_ID();
 
 UPDATE charging_points
