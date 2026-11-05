@@ -22,7 +22,7 @@ EXECUTE add_point_code_stmt;
 DEALLOCATE PREPARE add_point_code_stmt;
 
 UPDATE charging_points
-SET point_code = CONCAT('CP-', LPAD(point_id, 4, '0'))
+SET point_code = CONCAT('CP-', LPAD(point_id, 2, '0'))
 WHERE point_code IS NULL OR TRIM(point_code) = '';
 
 SET @point_code_index_exists = (
