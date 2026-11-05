@@ -34,12 +34,15 @@ export async function getMongoDb(): Promise<Db> {
 export type ActivityAction =
   | "auth.login"
   | "reservation.created"
-  | "reservation.cancelled";
+  | "reservation.cancelled"
+  | "station.created"
+  | "station.updated"
+  | "station.deleted";
 
 export interface ActivityInput {
   action: ActivityAction;
   userId: number;
-  entityType: "user" | "reservation";
+  entityType: "user" | "reservation" | "station";
   entityId: number;
   metadata?: Record<string, string | number | boolean | null>;
 }
