@@ -999,8 +999,7 @@ function DashboardView({
       </section>
 
       <DemoNotice>
-        My EV and Admin tools use demo data. Station details, booking options, and reservation history are loaded from
-        MySQL.
+        Admin tools still use demo data. Stations, EV management, and reservations are connected to MySQL.
       </DemoNotice>
 
       <section aria-label="Statistics" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -2747,7 +2746,7 @@ export default function Page() {
             <p className="text-sm font-semibold text-amber-900">Demo mode</p>
           </div>
           <p className="mt-1 text-xs leading-relaxed text-amber-800">
-            My EV and Admin tools still use demo data. Stations and reservations use MySQL.
+            EV management, stations and reservations use MySQL. Admin tools are still in demo mode.
           </p>
         </div>
       </aside>
