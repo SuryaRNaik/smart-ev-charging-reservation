@@ -24,7 +24,8 @@ EV drivers need a way to find charging locations, register their vehicles and re
 - Reservation creation and its pending payment record are committed or rolled back together.
 - Successful login, reservation creation and reservation cancellation are recorded in MongoDB.
 - Customers can view their own recent activity; admins can view the application-wide activity stream.
-- The application recognizes customer and admin roles. The admin station-management screen is still a prototype; protected MySQL CRUD for stations and charging points remains a known limitation.
+- Admins can create, read, update and delete stations and manage their charging points through protected MySQL APIs. Point codes are unique and persistent. Deleting stations or reducing point counts is blocked when reservation history references the affected points.
+- The application enforces customer and admin roles in protected Route Handlers.
 
 ## Database selection and justification
 
@@ -38,8 +39,8 @@ A vector database is not used because semantic retrieval is not a requirement fo
 
 ## Scope and limitations
 
-The project simulates payment status and charging-session data. It does not connect to real payment gateways or physical charging hardware. Admin station/charging-point CRUD is not yet persisted to MySQL. The verification status and tests still required are recorded in [test-cases.md](./test-cases.md).
+The project simulates payment status and charging-session data. It does not connect to real payment gateways or physical charging hardware. The current tariff is updated in place when an administrator edits a station; the project does not yet store an immutable tariff snapshot on each reservation. The verification status and tests still required are recorded in [test-cases.md](./test-cases.md).
 
 ## Conclusion
 
-The project demonstrates how a relational database and a document database can support different parts of one application. MySQL provides integrity and transactional behavior for charging reservations, while MongoDB stores application activity. The Next.js interface connects these capabilities through server-side APIs. The remaining work is to complete protected admin station/charging-point CRUD, run and record the pending tests, capture application/database screenshots, and finalize the submission report and demonstration.
+The project demonstrates how a relational database and a document database can support different parts of one application. MySQL provides integrity and transactional behavior for charging reservations, while MongoDB stores application activity. The Next.js interface connects these capabilities through server-side APIs. The remaining work is to run and record the pending tests, capture application/database screenshots, and finalize the submission report and demonstration.
