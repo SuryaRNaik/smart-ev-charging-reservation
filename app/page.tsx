@@ -200,12 +200,6 @@ const INITIAL_STATIONS: Station[] = [
   },
 ];
 
-const INITIAL_EVS: Ev[] = [
-  { id: "ev-1", number: "KA01EV2026", model: "My EV", batteryKWh: 30, connector: "Type 2" },
-  { id: "ev-2", number: "KA05MN4821", model: "Tata Nexon EV", batteryKWh: 40.5, connector: "CCS2" },
-  { id: "ev-3", number: "KA03EV9087", model: "MG ZS EV", batteryKWh: 50.3, connector: "CCS2" },
-];
-
 const NAV_ITEMS: { view: View; label: string; icon: string }[] = [
   { view: "dashboard", label: "Dashboard", icon: "▦" },
   { view: "stations", label: "Stations", icon: "⚡" },
@@ -457,6 +451,25 @@ function parseBookingOptions(value: unknown): {
   return { vehicles, stations: Array.from(stationsById.values()) };
 }
 
+function parseEvsResponse(value: unknown): Ev[] {
+  if (!isRecord(value) || value.success !== true || !Array.isArray(value.vehicles)) {
+    throw new Error("The vehicles API returned an invalid response.");
+  }
+
+  return value.vehicles.map((row: unknown): Ev => {
+    if (!isRecord(row)) throw new Error("The vehicles API returned an invalid vehicle.");
+    const connector = toConnector(parseText(row.connector_type, "connector type"));
+    if (!connector) throw new Error("The vehicles API returned an unsupported connector type.");
+    return {
+      id: String(parseId(row.ev_id)),
+      number: parseText(row.vehicle_number, "vehicle number"),
+      model: parseText(row.model, "vehicle model"),
+      batteryKWh: parseNumber(row.battery_capacity, "battery capacity"),
+      connector,
+    };
+  });
+}
+
 function parseReservationHistory(value: unknown, vehicles: BookingVehicle[]): ApiReservation[] {
   if (!isRecord(value) || value.success !== true || !Array.isArray(value.data)) {
     throw new Error("The reservations API returned an invalid response.");
@@ -486,7 +499,10 @@ function parseReservationHistory(value: unknown, vehicles: BookingVehicle[]): Ap
   }).sort((left, right) => right.startMs - left.startMs);
 }
 
-async function readApiResponse(response: Response): Promise<Record<string, unknown>> {
+async function readApiResponse(
+  response: Response,
+  conflictHint = "The point may no longer be available; refresh booking options and try again."
+): Promise<Record<string, unknown>> {
   let payload: unknown;
   try {
     payload = await response.json();
@@ -499,8 +515,8 @@ async function readApiResponse(response: Response): Promise<Record<string, unkno
       ? payload.message
       : `The request failed with status ${response.status}.`;
   if (!response.ok || !isRecord(payload) || payload.success !== true) {
-    if (response.status === 409) {
-      throw new Error(`${message} The point may no longer be available; refresh booking options and try again.`);
+    if (response.status === 409 && conflictHint) {
+      throw new Error(`${message} ${conflictHint}`);
     }
     throw new Error(message);
   }
@@ -608,7 +624,11 @@ function validateStationDraft(
   return { ok: true, value: { name, city, connector: draft.connector, powerKW: power, tariffPerKWh: tariff, pointIds } };
 }
 
-function validateEvDraft(draft: EvDraft, evs: Ev[]): Validation<Omit<Ev, "id">> {
+function validateEvDraft(
+  draft: EvDraft,
+  evs: Ev[],
+  editingId: string | null = null
+): Validation<Omit<Ev, "id">> {
   const fail = (error: string): Validation<Omit<Ev, "id">> => ({ ok: false, error });
   const number = draft.number.replace(/\s+/g, "").toUpperCase();
   const model = draft.model.trim();
@@ -616,12 +636,18 @@ function validateEvDraft(draft: EvDraft, evs: Ev[]): Validation<Omit<Ev, "id">> 
   if (!/^[A-Z0-9-]{6,12}$/.test(number)) {
     return fail("Vehicle number must be 6 to 12 letters or digits (for example KA01AB1234).");
   }
-  if (evs.some((e) => e.number === number)) return fail(`A vehicle with number ${number} already exists.`);
+  if (evs.some((e) => e.id !== editingId && e.number === number)) {
+    return fail(`A vehicle with number ${number} already exists.`);
+  }
   if (!model) return fail("Model is required.");
+  if (model.length > 100) return fail("Model must be 100 characters or fewer.");
   if (draft.battery.trim() === "") return fail("Battery capacity is required.");
   const battery = Number(draft.battery);
   if (!Number.isFinite(battery) || battery <= 0 || battery > 250) {
     return fail("Battery capacity must be a number between 0 and 250 kWh.");
+  }
+  if (!/^(?:\d+(?:\.\d{1,2})?|\.\d{1,2})$/.test(draft.battery.trim())) {
+    return fail("Battery capacity must have at most two decimal places.");
   }
   return { ok: true, value: { number, model, batteryKWh: battery, connector: draft.connector } };
 }
@@ -1680,44 +1706,83 @@ function ReservationsView({
 
 function EvsView({
   evs,
-  liveReservations,
-  onAdd,
+  loading,
+  loadError,
+  authRequired,
+  onRetry,
+  onSave,
   onDelete,
 }: {
   evs: Ev[];
-  liveReservations: Reservation[];
-  onAdd: (draft: EvDraft) => ActionResult;
-  onDelete: (id: string) => ActionResult;
+  loading: boolean;
+  loadError: string | null;
+  authRequired: boolean;
+  onRetry: () => void;
+  onSave: (draft: EvDraft, editingId: string | null) => Promise<ActionResult>;
+  onDelete: (id: string) => Promise<ActionResult>;
 }) {
   const emptyDraft: EvDraft = { number: "", model: "", battery: "", connector: "CCS2" };
   const [draft, setDraft] = useState<EvDraft>(emptyDraft);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const result = onAdd(draft);
-    setFeedback({ kind: result.ok ? "success" : "error", text: result.message });
-    if (result.ok) setDraft({ number: "", model: "", battery: "", connector: draft.connector });
+  const resetForm = () => {
+    setDraft(emptyDraft);
+    setEditingId(null);
   };
 
-  const handleDelete = (id: string) => {
-    const result = onDelete(id);
-    setFeedback({ kind: result.ok ? "success" : "error", text: result.message });
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const result = await onSave(draft, editingId);
+      setFeedback({ kind: result.ok ? "success" : "error", text: result.message });
+      if (result.ok) resetForm();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    setSaving(true);
+    try {
+      const result = await onDelete(id);
+      setFeedback({ kind: result.ok ? "success" : "error", text: result.message });
+      if (result.ok && editingId === id) resetForm();
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div>
       <PageHeader title="My EVs" subtitle="Manage the vehicles you use for charging reservations." />
-      <DemoNotice>
-        Frontend prototype awaiting database integration. Added or deleted vehicles exist only in browser memory.
-      </DemoNotice>
+      {loadError ? (
+        <div className="mb-5">
+          <Alert feedback={{ kind: "error", text: loadError }} />
+          {authRequired ? (
+            <a href="/login" className="mt-2 inline-block text-sm font-semibold text-emerald-700 underline">
+              Sign in to manage your vehicles
+            </a>
+          ) : (
+            <button type="button" onClick={onRetry} className={`${btnSecondary} mt-2`}>
+              Retry
+            </button>
+          )}
+        </div>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <section className="lg:col-span-2" aria-labelledby="ev-list-heading">
           <h2 id="ev-list-heading" className="mb-4 text-lg font-semibold text-[#0f1b3d]">
             Your vehicles ({evs.length})
           </h2>
-          {evs.length === 0 ? (
+          {loading ? (
+            <p role="status" className="text-sm text-slate-600">Loading your vehicles...</p>
+          ) : loadError && evs.length === 0 ? (
+            <p className="text-sm text-slate-600">Your vehicles are unavailable until they can be loaded.</p>
+          ) : evs.length === 0 ? (
             <EmptyState
               icon="🚗"
               title="No vehicles yet"
@@ -1726,7 +1791,6 @@ function EvsView({
           ) : (
             <ul className="grid gap-4 sm:grid-cols-2">
               {evs.map((v) => {
-                const inUse = liveReservations.filter((r) => r.evId === v.id).length;
                 return (
                   <li key={v.id} className={`${cardCls} p-5`}>
                     <div className="flex items-start justify-between gap-3">
@@ -1748,12 +1812,33 @@ function EvsView({
                       </div>
                     </dl>
                     <div className="mt-4 flex items-center justify-between gap-2">
-                      <span className="text-xs text-slate-500">
-                        {inUse > 0 ? `${inUse} active booking${inUse === 1 ? "" : "s"}` : "No active bookings"}
-                      </span>
-                      <button type="button" onClick={() => handleDelete(v.id)} className={`${btnDanger} px-3 py-1.5`}>
-                        Delete
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={saving || loading || authRequired}
+                          onClick={() => {
+                            setEditingId(v.id);
+                            setDraft({
+                              number: v.number,
+                              model: v.model,
+                              battery: String(v.batteryKWh),
+                              connector: v.connector,
+                            });
+                            setFeedback(null);
+                          }}
+                          className={`${btnSecondary} px-3 py-1.5`}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          disabled={saving || loading || authRequired}
+                          onClick={() => void handleDelete(v.id)}
+                          className={`${btnDanger} px-3 py-1.5`}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   </li>
                 );
@@ -1763,13 +1848,17 @@ function EvsView({
         </section>
 
         <form onSubmit={handleSubmit} noValidate className={`${cardCls} h-fit space-y-4 p-5 sm:p-6`}>
-          <h2 className="text-lg font-semibold text-[#0f1b3d]">Add EV</h2>
+          <h2 className="text-lg font-semibold text-[#0f1b3d]">
+            {editingId ? "Edit EV" : "Add EV"}
+          </h2>
           <Alert feedback={feedback} />
           <Field id="ev-number" label="Vehicle number" hint="For example KA01AB1234">
             <input
               id="ev-number"
               type="text"
               aria-required="true"
+              maxLength={20}
+              disabled={authRequired}
               value={draft.number}
               onChange={(e) => setDraft({ ...draft, number: e.target.value })}
               className={inputCls}
@@ -1781,6 +1870,8 @@ function EvsView({
               id="ev-model"
               type="text"
               aria-required="true"
+              maxLength={100}
+              disabled={authRequired}
               value={draft.model}
               onChange={(e) => setDraft({ ...draft, model: e.target.value })}
               className={inputCls}
@@ -1792,9 +1883,11 @@ function EvsView({
               id="ev-battery"
               type="number"
               inputMode="decimal"
-              min="0"
-              step="0.1"
+              min="0.01"
+              max="250"
+              step="0.01"
               aria-required="true"
+              disabled={authRequired}
               value={draft.battery}
               onChange={(e) => setDraft({ ...draft, battery: e.target.value })}
               className={inputCls}
@@ -1803,6 +1896,7 @@ function EvsView({
           <Field id="ev-connector" label="Connector type">
             <select
               id="ev-connector"
+              disabled={authRequired}
               value={draft.connector}
               onChange={(e) => setDraft({ ...draft, connector: toConnector(e.target.value) ?? "CCS2" })}
               className={inputCls}
@@ -1814,9 +1908,19 @@ function EvsView({
               ))}
             </select>
           </Field>
-          <button type="submit" className={`${btnPrimary} w-full`}>
-            Add EV
+          <button type="submit" disabled={saving || loading || authRequired} className={`${btnPrimary} w-full`}>
+            {saving ? "Saving..." : editingId ? "Update EV" : "Add EV"}
           </button>
+          {editingId ? (
+            <button
+              type="button"
+              disabled={saving || authRequired}
+              onClick={resetForm}
+              className={`${btnSecondary} w-full`}
+            >
+              Cancel editing
+            </button>
+          ) : null}
         </form>
       </div>
     </div>
@@ -2115,7 +2219,10 @@ export default function Page() {
   const [dashboardStations, setDashboardStations] = useState<DashboardStation[]>([]);
   const [dashboardStationsLoading, setDashboardStationsLoading] = useState<boolean>(true);
   const [dashboardStationsError, setDashboardStationsError] = useState<string | null>(null);
-  const [evs, setEvs] = useState<Ev[]>(INITIAL_EVS);
+  const [evs, setEvs] = useState<Ev[]>([]);
+  const [evsLoading, setEvsLoading] = useState<boolean>(true);
+  const [evsError, setEvsError] = useState<string | null>(null);
+  const [evsAuthRequired, setEvsAuthRequired] = useState<boolean>(false);
   const [reservations] = useState<Reservation[]>([]);
 
   const [form, setForm] = useState<ReservationForm>({
@@ -2139,7 +2246,26 @@ export default function Page() {
   const [cancellingId, setCancellingId] = useState<number | null>(null);
 
   const nextStationId = useRef<number>(5);
-  const nextEvId = useRef<number>(4);
+
+  const loadEvs = useCallback(async (): Promise<boolean> => {
+    setEvsLoading(true);
+    setEvsError(null);
+    setEvsAuthRequired(false);
+    try {
+      const response = await fetch("/api/evs");
+      if (response.status === 401) setEvsAuthRequired(true);
+      const payload = await readApiResponse(response, "");
+      setEvs(parseEvsResponse(payload));
+      return true;
+    } catch (error) {
+      setEvsError(
+        error instanceof Error ? error.message : "Could not load vehicles. Please try again."
+      );
+      return false;
+    } finally {
+      setEvsLoading(false);
+    }
+  }, []);
 
   const loadDashboardStations = useCallback(async () => {
     setDashboardStationsLoading(true);
@@ -2211,6 +2337,10 @@ export default function Page() {
   useEffect(() => {
     void Promise.resolve().then(loadDashboardStations);
   }, [loadDashboardStations]);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadEvs);
+  }, [loadEvs]);
 
   useEffect(() => {
     void Promise.resolve().then(loadBookingOptions);
@@ -2410,29 +2540,67 @@ export default function Page() {
   };
 
   /* EV handlers */
-  const addEv = (draft: EvDraft): ActionResult => {
-    const check = validateEvDraft(draft, evs);
+  const saveEv = async (draft: EvDraft, editingId: string | null): Promise<ActionResult> => {
+    const check = validateEvDraft(draft, evs, editingId);
     if (!check.ok) return { ok: false, message: check.error };
-    const id = `ev-${nextEvId.current}`;
-    nextEvId.current += 1;
-    setEvs((prev) => [...prev, { id, ...check.value }]);
-    return { ok: true, message: `${check.value.model} (${check.value.number}) added to the demo list.` };
-  };
 
-  const deleteEv = (id: string): ActionResult => {
-    const target = evs.find((e) => e.id === id);
-    if (!target) return { ok: false, message: "That vehicle no longer exists." };
-    const active = liveReservations.filter((r) => r.evId === id).length;
-    if (active > 0) {
+    try {
+      const response = await fetch("/api/evs", {
+        method: editingId ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(editingId ? { ev_id: Number(editingId) } : {}),
+          vehicle_number: check.value.number,
+          model: check.value.model,
+          battery_capacity: check.value.batteryKWh,
+          connector_type: check.value.connector,
+        }),
+      });
+      if (response.status === 401) setEvsAuthRequired(true);
+      const payload = await readApiResponse(response, "");
+      const refreshed = await loadEvs();
+      await loadBookingOptions();
+      const message =
+        typeof payload.message === "string"
+          ? payload.message
+          : editingId
+            ? "Vehicle updated successfully."
+            : "Vehicle added successfully.";
+      return {
+        ok: true,
+        message: refreshed ? message : `${message} The vehicle list could not be refreshed; please retry.`,
+      };
+    } catch (error) {
       return {
         ok: false,
-        message: `${target.model} cannot be deleted because it has ${active} active reservation${
-          active === 1 ? "" : "s"
-        }. Cancel ${active === 1 ? "it" : "them"} first.`,
+        message: error instanceof Error ? error.message : "Could not save this vehicle. Please try again.",
       };
     }
-    setEvs((prev) => prev.filter((e) => e.id !== id));
-    return { ok: true, message: `${target.model} (${target.number}) was removed from the demo list.` };
+  };
+
+  const deleteEv = async (id: string): Promise<ActionResult> => {
+    try {
+      const response = await fetch("/api/evs", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ev_id: Number(id) }),
+      });
+      if (response.status === 401) setEvsAuthRequired(true);
+      const payload = await readApiResponse(response, "");
+      const refreshed = await loadEvs();
+      await loadBookingOptions();
+      const message =
+        typeof payload.message === "string" ? payload.message : "Vehicle deleted successfully.";
+      return {
+        ok: true,
+        message: refreshed ? message : `${message} The vehicle list could not be refreshed; please retry.`,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "Could not delete this vehicle. Please try again.",
+      };
+    }
   };
 
   /* Admin handlers */
@@ -2607,7 +2775,15 @@ export default function Page() {
             <StationsView onReserve={openReserve} />
           ) : null}
           {view === "evs" ? (
-            <EvsView evs={evs} liveReservations={liveReservations} onAdd={addEv} onDelete={deleteEv} />
+            <EvsView
+              evs={evs}
+              loading={evsLoading}
+              loadError={evsError}
+              authRequired={evsAuthRequired}
+              onRetry={() => void loadEvs()}
+              onSave={saveEv}
+              onDelete={deleteEv}
+            />
           ) : null}
           {view === "reservations" ? (
             <ReservationsView
