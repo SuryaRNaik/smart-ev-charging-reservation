@@ -2301,7 +2301,7 @@ function ActivityView() {
                 <li key={log.id} className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <p className="font-semibold capitalize text-[#0f1b3d]">
-                      {log.action.replace(/\\./g, " ")}
+                      {log.action.replace(/\./g, " ")}
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
                       {log.entityType} #{log.entityId} · User #{log.userId}
@@ -2924,6 +2924,7 @@ export default function Page() {
               onRetryHistory={() => void loadReservationHistory()}
             />
           ) : null}
+          {view === "activity" ? <ActivityView /> : null}
           {view === "admin" ? (
             <AdminView
               stations={stations}
