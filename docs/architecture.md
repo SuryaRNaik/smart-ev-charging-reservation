@@ -8,11 +8,14 @@ The application uses Next.js App Router for the browser interface and server-sid
 flowchart TD
     Browser["Next.js browser UI"]
     Routes["Next.js Route Handlers"]
+    Admin["Admin station/point CRUD API"]
     Auth["Session verification and role checks"]
     MySQL[("MySQL 8 / InnoDB")]
     Mongo[("MongoDB / activity_logs")]
 
     Browser --> Routes
+    Browser --> Admin
+    Admin --> Auth
     Routes --> Auth
     Auth --> MySQL
     Routes --> Mongo
@@ -37,7 +40,7 @@ flowchart TD
 4. Protected Route Handlers verify the session on the server. Customer data operations are scoped to the authenticated user.
 5. Activity-log retrieval returns a customer's own events. An authenticated admin can retrieve the application-wide audit stream.
 
-The project includes customer and admin roles. The admin station-management screen is currently a prototype using local demo state; protected MySQL station/charging-point CRUD APIs are still outstanding.
+The project includes customer and admin roles. The `/api/admin/stations` Route Handler requires a valid admin session for all operations. It reads stations and points from MySQL and performs station, point and tariff changes in transactions. A customer receives HTTP 403. Deleting a station or reducing its point count is rejected when reservation history references an affected point.
 
 ## Reservation and payment transaction
 
@@ -51,6 +54,7 @@ After the MySQL transaction commits, the API attempts to write a MongoDB activit
 
 - Successful login events are written as `auth.login`.
 - Reservation creation and cancellation are written as `reservation.created` and `reservation.cancelled`.
+- Admin station creation, update and deletion are written as `station.created`, `station.updated` and `station.deleted`.
 - MongoDB indexes support chronological retrieval, user-scoped retrieval and action-based aggregation.
 - The Activity screen calls `GET /api/activity-logs`; customer results are filtered to the signed-in user and administrators can inspect all events.
 
@@ -60,7 +64,7 @@ The application reads database and session configuration from environment variab
 
 ## Current limitations
 
-- Admin station/charging-point CRUD is not yet connected to MySQL.
+- Tariff updates currently update the station tariff row in place; a separate immutable tariff snapshot per reservation is not implemented.
 - Payments are simulated; there is no payment gateway.
 - Charging sessions are demonstration records; there is no physical charger integration.
-- Activity events currently cover login and reservation create/cancel; station-management events can be added when admin APIs are implemented.
+- Activity events cover login, reservation create/cancel and admin station create/update/delete.
