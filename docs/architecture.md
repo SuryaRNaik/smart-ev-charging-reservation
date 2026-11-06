@@ -38,7 +38,9 @@ flowchart TD
 2. Login verifies the password hash and creates a signed seven-day session.
 3. The session is stored in an HttpOnly cookie; the Secure flag is enabled in production.
 4. Protected Route Handlers verify the session on the server. Customer data operations are scoped to the authenticated user.
-5. Activity-log retrieval returns a customer's own events. An authenticated admin can retrieve the application-wide audit stream.
+5. The main application calls `GET /api/auth/session` to display the signed-in user's name, email and role. The endpoint checks the current MySQL account role against the signed session; if permissions changed, it clears the stale cookie and requires a fresh login.
+6. `POST /api/auth/logout` clears the HttpOnly session cookie and returns the user to the sign-in/create-account page.
+7. Activity-log retrieval returns a customer's own events. An authenticated admin can retrieve the application-wide audit stream.
 
 The project includes customer and admin roles. The `/api/admin/stations` Route Handler requires a valid admin session for all operations. It reads stations and points from MySQL and performs station, point and tariff changes in transactions. A customer receives HTTP 403. Deleting a station or reducing its point count is rejected when reservation history references an affected point.
 
