@@ -92,7 +92,7 @@ See:
    npm run dev
    ```
 
-   Open [http://localhost:3000](http://localhost:3000).
+   Open [http://localhost:3000](http://localhost:3000). Sign in or create an account at `/login`; the main screen shows the current account and provides an in-app sign-out control.
 
 ## Main API routes
 
@@ -100,6 +100,8 @@ See:
 |---|---|---|
 | `POST` | `/api/auth/register` | Register a customer |
 | `POST` | `/api/auth/login` | Verify credentials and create a session |
+| `GET` | `/api/auth/session` | Return the signed-in user's account details and validate the current role |
+| `POST` | `/api/auth/logout` | Clear the session cookie and sign out |
 | `GET` | `/api/stations` | Read station summaries from MySQL |
 | `GET`, `POST`, `PATCH`, `DELETE` | `/api/admin/stations` | Admin-only station and charging-point management; changes are transactional and persisted in MySQL |
 | `GET` | `/api/booking-options` | Load the signed-in user's EVs and available booking options |
