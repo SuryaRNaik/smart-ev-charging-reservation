@@ -16,15 +16,15 @@ Use this order to show the connection between the project problem, database desi
 - [ ] Execute the rollback-protected INSERT, SELECT, UPDATE and DELETE demonstration.
 - [ ] Show the JOIN, GROUP BY, HAVING, ORDER BY, aggregate and subquery examples.
 - [ ] Query `advanced_reservation_details` from the view.
-- [ ] Show the overlap-prevention INSERT and UPDATE triggers.
-- [ ] Show reservation indexes and the corresponding EXPLAIN plans.
+- [x] Show the overlap-prevention INSERT and UPDATE triggers.
+- [x] Show reservation indexes and the corresponding EXPLAIN plans.
 - [ ] Explain the reservation-plus-pending-payment transaction and how a failure rolls back both inserts.
 
 ## 3. MongoDB implementation
 
 - [ ] Show sample documents in `activity_logs`.
 - [ ] Show the timestamp, user/timestamp and action/timestamp indexes.
-- [ ] Run `db/mongodb_activity_aggregation.js` in `mongosh` and explain the group/count result.
+- [x] Run `db/mongodb_activity_aggregation.js` in `mongosh` and explain the group/count result.
 - [ ] Sign in as two customers and show that each customer sees only their own activity.
 - [ ] Sign in as admin and show the application-wide activity view.
 
@@ -32,20 +32,20 @@ Use this order to show the connection between the project problem, database desi
 
 - [ ] Open the Sign in / Create account page from the main application's account panel.
 - [ ] Register a customer and sign in.
-- [ ] Show the signed-in user's name, email and role in the sidebar; sign out using the in-app button and sign in again.
+- [x] Show the signed-in user's name, email and role in the sidebar; sign out using the in-app button and sign in again.
 - [ ] Browse charging stations and booking options.
 - [ ] Register an EV, edit it, and show duplicate-number validation.
-- [ ] Create a reservation and show the saved reservation and Pending payment row in MySQL.
-- [ ] Attempt an overlapping reservation and show that the request is rejected.
-- [ ] Cancel an eligible reservation and show the updated status and MongoDB event.
-- [ ] Sign in as admin and create a station with multiple charging points; show persistent point codes in MySQL.
-- [ ] Edit station details and change its point count; show the updated MySQL records.
-- [ ] Attempt to remove a charging point/station referenced by reservation history and show the HTTP 409 protection.
+- [x] Create a reservation and show the saved reservation and Pending payment row in MySQL.
+- [x] Attempt an overlapping reservation and show that the request is rejected.
+- [ ] Cancel an eligible reservation and show the updated status; the corresponding local MongoDB cancellation event still needs verification.
+- [x] Sign in as admin and create a station with multiple charging points; show persistent point codes in MySQL.
+- [x] Edit station details and change its point count; show the updated MySQL records.
+- [x] Attempt to remove a station referenced by reservation history and show the reservation-history protection.
 - [ ] Attempt admin station access as a customer and show HTTP 403.
 
 ## 5. Quality and submission evidence
 
-- [ ] Run `npm run lint` and `npm run build`.
+- [x] Run `npm run lint` and `npm run build`.
 - [ ] Run the pending test cases in [test-cases.md](./test-cases.md) and update their status only with actual results.
 - [ ] Capture screenshots of the UI, SQL outputs, ER diagram, MongoDB documents/aggregation and test results.
 - [ ] Explain each team member's individual code and database contributions.
