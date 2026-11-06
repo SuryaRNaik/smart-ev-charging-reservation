@@ -24,6 +24,9 @@ Retain screenshots or SQL query output for these checks in the final submission.
 | ID | Scenario | Expected result | Status |
 |---|---|---|---|
 | AUTH-02 | Register a new customer | Registration succeeds and the UI shows the success state | Pending re-check |
+| AUTH-03 | Sign out from the main application sidebar | Session cookie is cleared and the user is returned to the sign-in/create-account page | Pending |
+| AUTH-04 | Change a user's MySQL role while an old session exists | Session endpoint clears the stale session; signing in again issues the updated role | Pending |
+| AUTH-05 | Load the main application with no session | Sidebar offers Sign in / Create account; protected API calls remain unauthorized | Pending |
 | ACT-01 | Call activity-log endpoint without a session | HTTP 401; no activity data returned | Pending |
 | ACT-02 | Customer retrieves activity | Only that customer's events are returned | Pending |
 | ACT-03 | Admin retrieves activity | Recent application-wide events are returned | Pending |
