@@ -1749,9 +1749,9 @@ function EvsView({
         <div className="mb-5">
           <Alert feedback={{ kind: "error", text: loadError }} />
           {authRequired ? (
-            <a href="/login" className="mt-2 inline-block text-sm font-semibold text-emerald-700 underline">
+            <Link href="/login" className="mt-2 inline-block text-sm font-semibold text-emerald-700 underline">
               Sign in to manage your vehicles
-            </a>
+            </Link>
           ) : (
             <button type="button" onClick={onRetry} className={`${btnSecondary} mt-2`}>
               Retry
