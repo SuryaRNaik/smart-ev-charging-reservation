@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { FormEvent, ReactNode } from "react";
 
 /* -------------------------------------------------------------------------- */
@@ -32,6 +33,13 @@ interface ActivityLogEntry {
   entityId: number;
   timestamp: string | null;
   metadata: Record<string, string | number | boolean | null>;
+}
+
+interface AuthUser {
+  userId: number;
+  name: string;
+  email: string;
+  role: "customer" | "admin";
 }
 
 type Validation<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -978,7 +986,7 @@ function DashboardView({
       </section>
 
       <DemoNotice>
-        Admin tools still use demo data. Stations, EV management, and reservations are connected to MySQL.
+        Stations, EV management, reservations and admin tools are connected to MySQL. MongoDB stores application activity.
       </DemoNotice>
 
       <section aria-label="Statistics" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -2470,9 +2478,14 @@ function ActivityView() {
 }
 
 export default function Page() {
+  const router = useRouter();
   const [view, setView] = useState<View>("dashboard");
   const [menuOpen, setMenuOpen] = useState<boolean>(false);
   const [nowMs, setNowMs] = useState<number>(0);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [authError, setAuthError] = useState<string>("");
+  const [loggingOut, setLoggingOut] = useState<boolean>(false);
 
   const [dashboardStations, setDashboardStations] = useState<DashboardStation[]>([]);
   const [dashboardStationsLoading, setDashboardStationsLoading] = useState<boolean>(true);
@@ -2501,6 +2514,43 @@ export default function Page() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [cancellingId, setCancellingId] = useState<number | null>(null);
+
+  const loadAuthUser = useCallback(async () => {
+    setAuthLoading(true);
+    setAuthError("");
+
+    try {
+      const response = await fetch("/api/auth/session", { cache: "no-store" });
+      if (response.status === 401) {
+        setAuthUser(null);
+        return;
+      }
+
+      const payload = await readApiResponse(response, "");
+      if (!isRecord(payload.user)) {
+        throw new Error("The session API returned invalid account details.");
+      }
+
+      const role = parseText(payload.user.role, "account role");
+      if (role !== "customer" && role !== "admin") {
+        throw new Error("The session API returned an unsupported account role.");
+      }
+
+      setAuthUser({
+        userId: parseId(payload.user.userId),
+        name: parseText(payload.user.name, "account name"),
+        email: parseText(payload.user.email, "account email"),
+        role,
+      });
+    } catch (error) {
+      setAuthUser(null);
+      setAuthError(
+        error instanceof Error ? error.message : "Could not check your sign-in status."
+      );
+    } finally {
+      setAuthLoading(false);
+    }
+  }, []);
 
   const loadEvs = useCallback(async (): Promise<boolean> => {
     setEvsLoading(true);
@@ -2588,6 +2638,10 @@ export default function Page() {
       setHistoryLoading(false);
     }
   }, [bookingVehicles]);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadAuthUser);
+  }, [loadAuthUser]);
 
   useEffect(() => {
     void Promise.resolve().then(loadDashboardStations);
@@ -2853,6 +2907,25 @@ export default function Page() {
     }
   };
 
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    setAuthError("");
+
+    try {
+      const response = await fetch("/api/auth/logout", { method: "POST" });
+      await readApiResponse(response, "");
+      setAuthUser(null);
+      router.replace("/login");
+      router.refresh();
+    } catch (error) {
+      setAuthError(
+        error instanceof Error ? error.message : "Could not sign out. Please try again."
+      );
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
   const liveCount = apiReservations.filter(
     (reservation) =>
       ["Booked", "Confirmed"].includes(reservation.status) && reservation.endMs > nowMs
@@ -2875,7 +2948,22 @@ export default function Page() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">Demo</span>
+          {authLoading ? (
+            <span className="max-w-24 truncate rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+              Checking…
+            </span>
+          ) : authUser ? (
+            <span className="max-w-28 truncate rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+              {authUser.name}
+            </span>
+          ) : (
+            <a
+              href="/login"
+              className="rounded-full bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white"
+            >
+              Sign in
+            </a>
+          )}
           <button
             type="button"
             onClick={() => setMenuOpen((open) => !open)}
@@ -2954,16 +3042,48 @@ export default function Page() {
           </ul>
         </nav>
 
-        <div className="m-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <div className="flex items-center gap-2">
-            <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
-            </span>
-            <p className="text-sm font-semibold text-amber-900">Demo mode</p>
-          </div>
-          <p className="mt-1 text-xs leading-relaxed text-amber-800">
-            EV management, stations and reservations use MySQL. Admin tools are still in demo mode.
+        <section className="mx-4 mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4" aria-label="Account">
+          {authLoading ? (
+            <p className="text-sm font-medium text-slate-600">Checking account…</p>
+          ) : authUser ? (
+            <>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Signed in as</p>
+              <p className="mt-1 truncate text-sm font-semibold text-[#0f1b3d]">{authUser.name}</p>
+              <p className="truncate text-xs text-slate-500">{authUser.email}</p>
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold capitalize text-emerald-800">
+                  {authUser.role}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void handleLogout()}
+                  disabled={loggingOut}
+                  className={btnSecondary}
+                >
+                  {loggingOut ? "Signing out…" : "Sign out"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-[#0f1b3d]">Welcome to VoltReserve</p>
+              <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                Sign in or create an account to manage your EVs and reservations.
+              </p>
+              <a href="/login" className={`${btnPrimary} mt-3 w-full`}>
+                Sign in / Create account
+              </a>
+            </>
+          )}
+          {authError ? (
+            <p className="mt-2 text-xs text-red-700" role="alert">{authError}</p>
+          ) : null}
+        </section>
+
+        <div className="m-4 mt-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <p className="text-sm font-semibold text-emerald-900">Database-backed app</p>
+          <p className="mt-1 text-xs leading-relaxed text-emerald-800">
+            MySQL stores accounts, stations, EVs and reservations. MongoDB stores activity logs.
           </p>
         </div>
       </aside>
