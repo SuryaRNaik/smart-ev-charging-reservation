@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { FormEvent, ReactNode } from "react";
@@ -2957,12 +2958,12 @@ export default function Page() {
               {authUser.name}
             </span>
           ) : (
-            <a
+            <Link
               href="/login"
               className="rounded-full bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white"
             >
               Sign in
-            </a>
+            </Link>
           )}
           <button
             type="button"
@@ -3070,9 +3071,9 @@ export default function Page() {
               <p className="mt-1 text-xs leading-relaxed text-slate-600">
                 Sign in or create an account to manage your EVs and reservations.
               </p>
-              <a href="/login" className={`${btnPrimary} mt-3 w-full`}>
+              <Link href="/login" className={`${btnPrimary} mt-3 w-full`}>
                 Sign in / Create account
-              </a>
+              </Link>
             </>
           )}
           {authError ? (
