@@ -25,8 +25,8 @@ Use this order to show the connection between the project problem, database desi
 - [ ] Show sample documents in `activity_logs`.
 - [ ] Show the timestamp, user/timestamp and action/timestamp indexes.
 - [x] Run `db/mongodb_activity_aggregation.js` in `mongosh` and explain the group/count result.
-- [ ] Sign in as two customers and show that each customer sees only their own activity.
-- [ ] Sign in as admin and show the application-wide activity view.
+- [x] Sign in as two customers and show that each customer sees only their own activity.
+- [x] Sign in as admin and show the application-wide activity view.
 
 ## 4. Web application
 
