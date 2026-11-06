@@ -4,7 +4,7 @@ A DBMS Experiential Learning Level 3 project by Sriniket Deeduvanu and Surya R N
 
 ## Implemented functionality
 
-- Customer registration and login using bcrypt password hashes and signed server-managed sessions.
+- Customer registration and login using bcrypt password hashes and signed server-managed sessions, with in-app account details and logout.
 - My EV: authenticated, MySQL-backed vehicle listing, registration, editing and deletion.
 - EV validation, duplicate registration protection, owner-scoped updates and deletion protection for vehicles referenced by reservation history.
 - MySQL-backed booking options and reservation history.
