@@ -30,7 +30,9 @@ Use this order to show the connection between the project problem, database desi
 
 ## 4. Web application
 
+- [ ] Open the Sign in / Create account page from the main application's account panel.
 - [ ] Register a customer and sign in.
+- [ ] Show the signed-in user's name, email and role in the sidebar; sign out using the in-app button and sign in again.
 - [ ] Browse charging stations and booking options.
 - [ ] Register an EV, edit it, and show duplicate-number validation.
 - [ ] Create a reservation and show the saved reservation and Pending payment row in MySQL.
