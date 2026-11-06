@@ -28,8 +28,8 @@ Retain screenshots or SQL query output for these checks in the final submission.
 | AUTH-04 | Change a user's MySQL role while an old session exists | Session endpoint clears the stale session; signing in again issues the updated role | Pending |
 | AUTH-05 | Load the main application with no session | Sidebar offers Sign in / Create account; protected API calls remain unauthorized | Pending |
 | ACT-01 | Call activity-log endpoint without a session | HTTP 401; no activity data returned | Pending |
-| ACT-02 | Customer retrieves activity | Only that customer's events are returned | Pending |
-| ACT-03 | Admin retrieves activity | Recent application-wide events are returned | Pending |
+| ACT-02 | Customer retrieves activity | Only that customer's events are returned | Passed manually; customer user ID 4 returned only user ID 4 events; console check `Only own activity: true` |
+| ACT-03 | Admin retrieves activity | Recent application-wide events are returned | Passed manually; admin user ID 3 retrieved 11 events across user IDs 1, 3, 4 and 5 |
 | ACT-04 | Successful login with MongoDB available | An `auth.login` document is inserted | Passed manually; Compass showed `auth.login` for user ID 3 in local `smart_ev.activity_logs` |
 | ACT-05 | Login while MongoDB is unavailable | Login still succeeds; logging error is isolated | Passed manually; Atlas connection timed out, but login API returned HTTP 200 |
 | ACT-06 | Admin creates, updates and deletes a station | Matching `station.created`, `station.updated` and `station.deleted` events are written | Partial; `station.updated` verified in local MongoDB after switching connection. `station.created` and `station.deleted` not yet rechecked locally |
