@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -97,12 +98,12 @@ export default function LoginPage() {
 
         <div className="px-6 py-8 sm:px-10 sm:py-10">
           <header className="mb-8">
-            <a
+            <Link
               href="/"
               className="mb-5 inline-flex items-center text-sm font-semibold text-emerald-700 transition hover:text-emerald-800 hover:underline"
             >
               ← Back to VoltReserve
-            </a>
+            </Link>
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.14em] text-emerald-800">
               <span aria-hidden="true" className="h-2 w-2 rounded-full bg-emerald-500" />
               Smart charging platform
